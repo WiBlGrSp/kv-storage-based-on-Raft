@@ -1,0 +1,5 @@
+build/
+cmake-build-*/
+logs/
+compile_commands.json
+.clangd

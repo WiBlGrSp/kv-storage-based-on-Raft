@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package raft;
+
+service RaftRPC {
+    rpc OnHeartBeat(HeartBeatRequest) returns (HeartBeatReply);
+    rpc OnRequestVote(VoteRequest) returns(VoteReply);
+}
+
+message HeartBeatRequest {
+    int32 term=1;
+    int32 leader_id=2;
+}
+
+message HeartBeatReply {
+    int32 term=1;
+}
+message VoteRequest{
+    int32 term=1;
+    int32 candidate_id=2;
+}
+message VoteReply
+{
+    int32 term=1;
+    bool vote_granted=2;
+}

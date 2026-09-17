@@ -1,0 +1,37 @@
+#include "raft.h"
+#include"RaftRPC.h"
+
+//要求输入--me=1@地址:端口 --peers=id@ip:port
+int main(int argc,const char*argv[])
+{
+    printf("program start\n");
+    int me;
+    std::string address;
+    std::map<int,Node> nodes;
+    if(argc<2)
+    {
+        printf("too little arguments\n");
+        return -1;
+    }else{
+        for(int i =1;i<argc;i++)
+        {
+            std::string buf(argv[i]);
+            auto it = buf.find('=');
+            auto it2 = buf.find('@');
+            int id = stoi(buf.substr(it+1,it2-it-1));
+            std::string addr = buf.substr(it2+1);
+            if(i == 1)
+            {
+                me = id;
+                address = addr;
+            }else{
+                nodes.emplace(id,Node(addr));
+            }
+        }
+    }
+    RaftNode raft_node(me,nodes);
+    RaftServer raft_server;
+    raft_server.start(address,raft_node);
+    raft_node.start();
+    return 0;
+}
