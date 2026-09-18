@@ -134,9 +134,13 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
                 //匹配成功,附加日志
                 response->set_success(true);
                 auto entries = request->entries();
+                if(this->log_.empty())
+                {
+                    this->log_.emplace_back(Entry{});
+                }
                 for(const auto e:entries)
                 {
-                    this->log_[e.index()] = Entry{e.index(),e.term(),e.cmd()};
+                    this->log_.emplace_back(Entry{e.index(),e.term(),e.cmd()});
                 }
                 response->set_next_index(this->getLastIndex()+1);
                 this->commited_index_ = this->getLastIndex();
@@ -310,10 +314,11 @@ void RaftNode::logInit() {
 void RaftNode::cliLike() {
     std::thread th([this](){
         int i = 0;
+        this->log_.emplace_back(Entry{});
         while(this->state_ == State::Leader)
         {
             i++;
-            this->log_[i] = (Entry{i,this->term,"test_"+std::to_string(i)});
+            this->log_.emplace_back(Entry{i,this->term,"test_"+std::to_string(i)});
             std::this_thread::sleep_for(std::chrono::seconds(3));
         }
     });
