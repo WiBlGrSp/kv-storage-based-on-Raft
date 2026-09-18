@@ -6,14 +6,29 @@ service RaftRPC {
     rpc OnHeartBeat(HeartBeatRequest) returns (HeartBeatReply);
     rpc OnRequestVote(VoteRequest) returns(VoteReply);
 }
-
+message Entry
+{
+    int32 index=1;
+    int32 term=2;
+    string cmd=3;
+}
 message HeartBeatRequest {
+    //心跳相关信息
     int32 term=1;
     int32 leader_id=2;
+    //日志相关信息
+    int32 prev_index = 3;
+    int32 prev_term = 4;
+    int32 commited_index = 5;
+    repeated Entry entries=6;
 }
 
 message HeartBeatReply {
     int32 term=1;
+    //如果"前一条记录"的(序号,任期)匹配则返回成功,否则返回失败
+    bool success=2;
+    //当日志复制失败时,从节点返回给主节点的nextIndex
+    int32 next_index=3;
 }
 message VoteRequest{
     int32 term=1;

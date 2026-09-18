@@ -1,9 +1,11 @@
+#include <chrono>
 #include <cstdlib>
 #include"raft.h"
 #include "RaftRPCClient.h"
 #include "raftRPC.pb.h"
 #include <memory>
 #include <mutex>
+#include <string>
 #include<thread>
 void RaftNode::start() {
     //初始化节点信息
@@ -79,6 +81,10 @@ void RaftNode::candidateRun() {
         //选举成功
         is_election_success_ = false;
         state_ = State::Leader;
+        //TODO:初始化日志状态
+        logInit();
+        //TODO:模拟客户端定期发送日志
+        cliLike();
         return;
     }
 }
@@ -89,8 +95,12 @@ void RaftNode::leaderRun() {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeatReply* response) {
+    
+    //TODO:如果有日志,则进行日志处理
+    //1.判断"前一条日志"是否匹配,如果匹配,进行追加
+    //2.如果不匹配,更新reply中的nextIndex,告知leader下次发送
     {
-    std::unique_lock<std::mutex> lck(mu_heartbeat_);
+        std::unique_lock<std::mutex> lck(mu_heartbeat_);
         //如果leader任期更新,则修改当前节点任期
         if(request->term()>this->term)
         {
@@ -101,12 +111,43 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
         {
             //如果leader任期更旧,不做处理
             response->set_term(this->term);
+            response->set_success(false);
             return;
         }
         //返回当前任期
         response->set_term(this->term);
         //心跳成功
         this->is_heartbeat_ = true;
+        //如果没有日志
+        if(request->entries_size() == 0)
+        {   
+            response->set_next_index(0);
+        }else{
+            //如果有日志,要进行检查,并附加日志
+            //从节点落后
+            if(request->prev_index() >this->getLastIndex())
+            {
+                response->set_success(false);
+                response->set_next_index(this->getLastIndex()+1);
+            }else if(request->prev_index() == this->getLastIndex())
+            {
+                //匹配成功,附加日志
+                response->set_success(true);
+                auto entries = request->entries();
+                for(const auto e:entries)
+                {
+                    this->log_[e.index()] = Entry{e.index(),e.term(),e.cmd()};
+                }
+                response->set_next_index(this->getLastIndex()+1);
+                this->commited_index_ = this->getLastIndex();
+                std::cout << "追加成功,当前日志为:" << std::endl;
+                for(const auto s : log_)
+                {
+                    std::cout << "(" << s.index << ',' << s.term <<')' << s.cmd << std::endl;
+                }
+            }
+        
+        }
     }
     cond_heartbeat_.notify_one();
 }
@@ -154,12 +195,29 @@ void RaftNode::sendRequestVote(int id,const raft::VoteRequest& request,raft::Vot
 
 //广播心跳包
 void RaftNode::broadcastHeartBeat() {
-    raft::HeartBeatRequest request;
-    request.set_leader_id(me_);
-    request.set_term(this->term);
-    for(const auto&[id,node]:nodes_)
+    //TODO:对每个结点判断是否有可发日志,并封装日志信息
+    int term = this->term;
+    for(const auto&[id,_] : nodes_)
     {
-        std::thread th([this,id = id,request](){
+        std::thread th([this,id = id,term](){
+            raft::HeartBeatRequest request;
+            request.set_leader_id(me_);
+            request.set_term(term);
+            request.set_commited_index(this->commited_index_);
+            int prevIndex = this->next_indexs_[id]-1;
+            //还有记录未发送,打包发送
+            if(getLastIndex() > prevIndex)
+            {
+                request.set_prev_index(prevIndex);
+                request.set_prev_term(this->log_[prevIndex].term);
+                for(auto it = this->log_.begin()+prevIndex+1;it!=this->log_.end();it++)
+                {
+                    auto e = request.add_entries();
+                    e->set_index(it->index);
+                    e->set_term(it->term);
+                    e->set_cmd(it->cmd);
+                }
+            }
             raft::HeartBeatReply response;
             sendHeartBeat(id,request,&response);
         });
@@ -179,7 +237,21 @@ void RaftNode::sendHeartBeat(int id,const raft::HeartBeatRequest &request,raft::
         this->term = response->term();
         vote_for_ = -1;
         state_ = State::Follower;
+        return;
     }
+
+    //TODO:leader根据从结点返回的nextIndex更新对follower日志状态
+
+    if(response->next_index()>0)
+    {
+        this->next_indexs_[id] = response->next_index();
+        this->match_indexs_[id] = response->next_index()-1;
+    } 
+        //TODO:超过半数提交成功,则提交当前日志
+        
+
+    
+
 }       
 
 void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* response) {
@@ -225,4 +297,25 @@ void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* r
     response->set_vote_granted(false);
     return;
 
+}
+void RaftNode::logInit() {
+    commited_index_ = 0;
+    applied_index_ = 0;
+    for(const auto&[id,v]:nodes_)
+    {
+        next_indexs_[id] = getLastIndex()+1;
+        match_indexs_[id] = 0;
+    }
+}
+void RaftNode::cliLike() {
+    std::thread th([this](){
+        int i = 0;
+        while(this->state_ == State::Leader)
+        {
+            i++;
+            this->log_[i] = (Entry{i,this->term,"test_"+std::to_string(i)});
+            std::this_thread::sleep_for(std::chrono::seconds(3));
+        }
+    });
+    th.detach();
 }

@@ -21,6 +21,15 @@ enum class State{
     Candidate,
     Leader
 };
+typedef std::string CMD;
+//日志记录结构
+struct Entry
+{
+    int index;  //序号
+    int term;   //任期
+    CMD cmd;    //命令
+};
+
 //raft节点定义
 class RaftNode{
 private:
@@ -50,6 +59,19 @@ private:
     std::map<int,std::shared_ptr<RaftRPCClient>> clis;
     //随机数发生器
     std::mt19937_64 rng_;
+
+    //日志复制相关状态
+    //日志容器
+    std::vector<Entry> log_; 
+    //上次提交序号
+    int commited_index_;
+    //上次应用到状态机序号
+    int applied_index_;
+    //保存发送给每个节点的下一条记录序号
+    std::map<int,int>next_indexs_;
+    //保存已经复制给每个节点的最后一条记录序号
+    std::map<int,int>match_indexs_;
+
 private:
     //初始化随机数发生器
     std::mt19937_64 MakeRng(int node_id) {
@@ -66,6 +88,19 @@ private:
 
     return std::mt19937_64(seed);
     }
+private:
+    //日志相关状态初始化
+    void logInit();
+    int  getLastIndex()
+    {
+        if(log_.size()==0)
+        {
+            return 0;
+        }
+        return log_.back().index;
+    }
+    //模拟客户端定期追加日志
+    void cliLike();
 private:
 
     void followerRun();
