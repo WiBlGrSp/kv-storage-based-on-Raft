@@ -61,30 +61,26 @@ void RaftNode::candidateRun() {
     //广播要票请求
     broadcastRequestVote();
     //启动选举定时器,过期则降为follower
-    while(true)
+    std::unique_lock<std::mutex> lck(mu_election_success_);
+    //设置选举定时器,定时为500~1000ms
+    auto dest = std::chrono::steady_clock::now()+std::chrono::milliseconds( 300+rng_()%(5000-300));
+    cond_election_success_.wait_until(lck,dest,[this]()->bool{
+        return is_election_success_ == true;
+    });
+    //过期且未选举成功
+    if(!is_election_success_)
     {
-        std::unique_lock<std::mutex> lck(mu_election_success_);
-        //设置选举定时器,定时为500~1000ms
-        auto dest = std::chrono::steady_clock::now()+std::chrono::milliseconds( 300+rng_()%(5000-300));
-        cond_election_success_.wait_until(lck,dest,[this]()->bool{
-            return is_election_success_ == true;
-        });
-        //过期且未选举成功
-        if(!is_election_success_)
-        {
-            printf("选举失败\n");
-            state_ = State::Follower;
-            return;
-        }else
-        {
-            printf("选举成功\n");
-            //选举成功
-            is_election_success_ = false;
-            state_ = State::Leader;
-            return;
-        }
+        printf("选举失败\n");
+        state_ = State::Follower;
+        return;
+    }else
+    {
+        printf("选举成功\n");
+        //选举成功
+        is_election_success_ = false;
+        state_ = State::Leader;
+        return;
     }
-    
 }
 void RaftNode::leaderRun() {
 
@@ -117,7 +113,7 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
 //广播要票请求
 void RaftNode::broadcastRequestVote() {
     raft::VoteRequest request;
-    request.set_candidate_id(me_);
+    request.set_candidate_id(this->me_);
     request.set_term(this->term);
     for(const auto&[id,node]:nodes_)
     {
