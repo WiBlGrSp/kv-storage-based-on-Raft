@@ -15,12 +15,6 @@ struct Node{
         connect_ = true;
     }
 };
-//节点状态枚举
-enum class State{
-    Follower=0,
-    Candidate,
-    Leader
-};
 typedef std::string CMD;
 //日志记录结构
 struct Entry
@@ -29,9 +23,15 @@ struct Entry
     int term;   //任期
     CMD cmd;    //命令
 };
-
 //raft节点定义
 class RaftNode{
+private:
+    //节点状态枚举
+    enum class State{
+        Follower=0,
+        Candidate,
+        Leader
+    };
 private:
     //本节点id
     int me_;    
@@ -40,7 +40,7 @@ private:
     //本节点状态 
     State state_;
     //当前任期   
-    int term;   
+    int current_term_;   
     //当前获得票数
     int vote_count_;
     //本轮投票所给节点id, 若没投票则为-1
@@ -49,6 +49,9 @@ private:
     bool is_heartbeat_;
     //选举成功
     bool is_election_success_;
+
+    //资源锁
+    std::mutex mu_state_;
 
     std::condition_variable cond_heartbeat_;
     std::mutex mu_heartbeat_;
@@ -66,7 +69,7 @@ private:
     //上次提交序号
     int commited_index_;
     //上次应用到状态机序号
-    int applied_index_;
+    int last_applied_;
     //保存发送给每个节点的下一条记录序号
     std::map<int,int>next_indexs_;
     //保存已经复制给每个节点的最后一条记录序号
@@ -107,9 +110,9 @@ private:
     void candidateRun();
     void leaderRun();
     void broadcastRequestVote();
-    void sendRequestVote(int id,const raft::VoteRequest& request,raft::VoteReply* response);
+    void sendRequestVote(int id);
     void broadcastHeartBeat();
-    void sendHeartBeat(int id,const raft::HeartBeatRequest &request,raft::HeartBeatReply*response);       
+    void sendHeartBeat(int id);       
 public:
     void onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeatReply* response);
     void onRequestVote(const raft::VoteRequest* request,raft::VoteReply* response);

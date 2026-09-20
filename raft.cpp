@@ -8,17 +8,20 @@
 #include <string>
 #include<thread>
 void RaftNode::start() {
-    //初始化节点信息
-    state_ = State::Follower;
-    term = 0;
-    vote_count_ = 0;
-    vote_for_ = -1;
-    is_heartbeat_ = false;
-    is_election_success_ = false;
-    //构建连接
-    for(const auto[id,node]:nodes_)
     {
-        clis[id] = std::make_unique<RaftRPCClient>(node.address_);
+        std::lock_guard<std::mutex> lck1(mu_state_);
+        //初始化节点信息
+        state_ = State::Follower;
+        current_term_ = 0;
+        vote_count_ = 0;
+        vote_for_ = -1;
+        is_heartbeat_ = false;
+        is_election_success_ = false;
+        //构建连接
+        for(const auto[id,node]:nodes_)
+        {
+            clis[id] = std::make_unique<RaftRPCClient>(node.address_);
+        }
     }
     while(true)
     {
@@ -38,24 +41,28 @@ void RaftNode::start() {
 
 void RaftNode::followerRun() {
 
-    std::unique_lock<std::mutex> lck(mu_heartbeat_);
-    is_heartbeat_ = false;
-    //设置心跳定时器,定时为100~200ms
-    auto dest = std::chrono::steady_clock::now()+std::chrono::milliseconds(rng_()%300+500);
-    cond_heartbeat_.wait_until(lck,dest,[this]()->bool{
-        return is_heartbeat_ == true;
-    });
-    //过期且未收到心跳包
-    if(!is_heartbeat_)
     {
-        state_ = State::Candidate;
-        return;
+        std::unique_lock<std::mutex> lck(mu_heartbeat_);
+        is_heartbeat_ = false;
+        //设置心跳定时器,定时为100~200ms
+        auto dest = std::chrono::steady_clock::now()+std::chrono::milliseconds(rng_()%300+500);
+        cond_heartbeat_.wait_until(lck,dest,[this]()->bool{
+            return is_heartbeat_ == true;
+        });
+        
+        //过期且未收到心跳包
+        if(!is_heartbeat_)
+        {
+            state_ = State::Candidate;
+            return;
+        }
     }
 }
 void RaftNode::candidateRun() {
+
     //修改任期
-    term ++;
-    printf("term=%d:参与选举\n",this->term);
+    current_term_ ++;
+    printf("term=%d:参与选举\n",this->current_term_);
     //为自己投票
     vote_count_ =1;
     vote_for_ = me_;
@@ -81,9 +88,9 @@ void RaftNode::candidateRun() {
         //选举成功
         is_election_success_ = false;
         state_ = State::Leader;
-        //TODO:初始化日志状态
+        //初始化日志状态
         logInit();
-        //TODO:模拟客户端定期发送日志
+        //模拟客户端定期发送日志
         cliLike();
         return;
     }
@@ -100,24 +107,26 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
     //1.判断"前一条日志"是否匹配,如果匹配,进行追加
     //2.如果不匹配,更新reply中的nextIndex,告知leader下次发送
     {
-        std::unique_lock<std::mutex> lck(mu_heartbeat_);
-        //如果leader任期更新,则修改当前节点任期
-        if(request->term()>this->term)
+        std::lock_guard<std::mutex> lck1(mu_state_);
+        if(this->current_term_ < request->term())
         {
-            this->term = request->term();
+            //如果leader任期更新,则修改当前节点任期
+            this->current_term_ = request->term();
             this->vote_for_ = -1;
             this->state_ = State::Follower;
-        }else if(request->term()<this->term)
+        }else if(this->current_term_> request->term())
         {
             //如果leader任期更旧,不做处理
-            response->set_term(this->term);
+            response->set_term(this->current_term_);
             response->set_success(false);
             return;
         }
-        //返回当前任期
-        response->set_term(this->term);
+        response->set_term(this->current_term_);
         //心跳成功
-        this->is_heartbeat_ = true;
+        {
+            std::lock_guard<std::mutex> lck2(mu_heartbeat_);
+            this->is_heartbeat_ = true;
+        }
         //如果没有日志
         if(request->entries_size() == 0)
         {   
@@ -157,33 +166,45 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
 }
 //广播要票请求
 void RaftNode::broadcastRequestVote() {
-    raft::VoteRequest request;
-    request.set_candidate_id(this->me_);
-    request.set_term(this->term);
+
     for(const auto&[id,node]:nodes_)
     {
-        std::thread th([this,id = id,request](){
-            raft::VoteReply response;
-            sendRequestVote(id,request,&response);
+        std::thread th([this,id = id](){
+            sendRequestVote(id);
         });
         th.detach();
     }
 }
-void RaftNode::sendRequestVote(int id,const raft::VoteRequest& request,raft::VoteReply* response)
+void RaftNode::sendRequestVote(int id)
 {
-    bool res = clis[id]->SendRequestVote(request,response);
+    raft::VoteRequest request;
+    raft::VoteReply response;
+    std::unique_lock<std::mutex> lck(mu_state_);
+    if(state_ != State::Candidate)
+    {
+        return;
+    }
+    request.set_candidate_id(this->me_);
+    request.set_term(this->current_term_);
+    lck.unlock();
+    bool res = clis[id]->SendRequestVote(request,&response);
     if(!res)    return;
     // printf("Vote:id=%d,term=%d\n",id,request.term());
     // printf("VoteRes:granted=%d,term=%d\n",response->vote_granted(),response->term());
-    if(response->term()>this->term)
+    lck.lock();
+    if(state_ != State::Candidate)
+    {
+        return;
+    }
+    if(response.term()>this->current_term_)
     {
         //更新任期
-        this->term = response->term();
+        this->current_term_ = response.term();
         vote_for_ = -1;
         state_ = State::Follower;
         return;
     }
-    if(response->vote_granted() && this->state_ == State::Candidate && response->term() == request.term())
+    if(response.vote_granted() && this->state_ == State::Candidate && response.term() == request.term())
     {
         this->vote_count_++;
         if(this->vote_count_>=(this->nodes_.size()+1)/2+1)
@@ -200,73 +221,83 @@ void RaftNode::sendRequestVote(int id,const raft::VoteRequest& request,raft::Vot
 //广播心跳包
 void RaftNode::broadcastHeartBeat() {
     //TODO:对每个结点判断是否有可发日志,并封装日志信息
-    int term = this->term;
     for(const auto&[id,_] : nodes_)
     {
-        std::thread th([this,id = id,term](){
-            raft::HeartBeatRequest request;
-            request.set_leader_id(me_);
-            request.set_term(term);
-            request.set_commited_index(this->commited_index_);
-            int prevIndex = this->next_indexs_[id]-1;
-            //还有记录未发送,打包发送
-            if(getLastIndex() > prevIndex)
-            {
-                request.set_prev_index(prevIndex);
-                request.set_prev_term(this->log_[prevIndex].term);
-                for(auto it = this->log_.begin()+prevIndex+1;it!=this->log_.end();it++)
-                {
-                    auto e = request.add_entries();
-                    e->set_index(it->index);
-                    e->set_term(it->term);
-                    e->set_cmd(it->cmd);
-                }
-            }
-            raft::HeartBeatReply response;
-            sendHeartBeat(id,request,&response);
+        std::thread th([this,id = id](){
+            sendHeartBeat(id);
         });
         th.detach();
-
     }
-    
 }
-void RaftNode::sendHeartBeat(int id,const raft::HeartBeatRequest &request,raft::HeartBeatReply*response)
+void RaftNode::sendHeartBeat(int id)
 {
-
-    bool res = clis[id]->SendHeartBeat(request,response);
-    if(!res)    return;
-    //如果自己任期更旧,降至follower状态
-    if(response->term()>this->term)
+    raft::HeartBeatRequest request;
+    raft::HeartBeatReply response;
+    std::unique_lock<std::mutex>lck1(mu_state_);
+    //封装请求包
+    if(this->state_ != State::Leader)
     {
-        this->term = response->term();
+        return;
+    }
+    request.set_leader_id(me_);
+    request.set_term(current_term_);
+    request.set_commited_index(this->commited_index_);
+    int prevIndex = this->next_indexs_[id]-1;
+    //还有记录未发送,打包发送
+    if(getLastIndex() > prevIndex)
+    {
+        request.set_prev_index(prevIndex);
+        request.set_prev_term(this->log_[prevIndex].term);
+        for(auto it = this->log_.begin()+prevIndex+1;it!=this->log_.end();it++)
+        {
+            auto e = request.add_entries();
+            e->set_index(it->index);
+            e->set_term(it->term);
+            e->set_cmd(it->cmd);
+        }
+    }
+
+    lck1.unlock();
+    //数据传输
+    bool res = clis[id]->SendHeartBeat(request,&response);
+    if(!res)    return;
+    lck1.lock();
+
+    //接收并解析响应
+    if(this->state_ != State::Leader)
+    {
+        return;
+    }
+    //如果自己任期更旧,降至follower状态
+    if(this->current_term_ < response.term())
+    {
+        this->current_term_ = response.term();
         vote_for_ = -1;
         state_ = State::Follower;
         return;
     }
-
     //TODO:leader根据从结点返回的nextIndex更新对follower日志状态
 
-    if(response->next_index()>0)
+    if(response.next_index()>0)
     {
-        this->next_indexs_[id] = response->next_index();
-        this->match_indexs_[id] = response->next_index()-1;
+        this->next_indexs_[id] = response.next_index();
+        this->match_indexs_[id] = response.next_index()-1;
     } 
-        //TODO:超过半数提交成功,则提交当前日志
-        
-
+    //TODO:超过半数提交成功,则提交当前日志
     
-
-}       
+}
+    
+    
 
 void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* response) {
     //降至Follower并投票
-    if(request->term()>this->term)
+    if(request->term()>this->current_term_)
     {
-        this->term = request->term();
+        this->current_term_ = request->term();
         this->vote_for_ = request->candidate_id();
-        response->set_term(this->term);
+        response->set_term(this->current_term_);
         response->set_vote_granted(true);
-        printf("hhhhterm=%d:投票给%d\n",this->term,this->vote_for_);
+        printf("hhhhterm=%d:投票给%d\n",this->current_term_,this->vote_for_);
         if(this->state_ == State::Candidate)
         {
             {
@@ -279,9 +310,9 @@ void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* r
         return;
     }
     //如果候选者过期,拒绝投票
-    if(request->term()<this->term)
+    if(request->term()<this->current_term_)
     {
-        response->set_term(this->term);
+        response->set_term(this->current_term_);
         response->set_vote_granted(false);
         return;
     }
@@ -289,22 +320,22 @@ void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* r
     //如果没投票,
     if(this->vote_for_ ==-1)
     {
-        this->term = request->term();
+        this->current_term_ = request->term();
         this->vote_for_ = request->candidate_id();
-        response->set_term(this->term);
+        response->set_term(this->current_term_);
         response->set_vote_granted(true);
-        printf("term=%d:投票给%d\n",this->term,this->vote_for_);
+        printf("term=%d:投票给%d\n",this->current_term_,this->vote_for_);
 
         return;
     }
-    response->set_term(this->term);
+    response->set_term(this->current_term_);
     response->set_vote_granted(false);
     return;
 
 }
 void RaftNode::logInit() {
     commited_index_ = 0;
-    applied_index_ = 0;
+    last_applied_ = 0;
     for(const auto&[id,v]:nodes_)
     {
         next_indexs_[id] = getLastIndex()+1;
@@ -318,7 +349,7 @@ void RaftNode::cliLike() {
         while(this->state_ == State::Leader)
         {
             i++;
-            this->log_.emplace_back(Entry{i,this->term,"test_"+std::to_string(i)});
+            this->log_.emplace_back(Entry{i,this->current_term_,"test_"+std::to_string(i)});
             std::this_thread::sleep_for(std::chrono::seconds(3));
         }
     });
