@@ -118,8 +118,9 @@ private:
     //加载日志
     bool loadLog();
     //提交日志
-    bool commitLog();
-
+    bool commitLog(int index);
+    //检查,更新commit_index并提交
+    bool updateCommit();
 private:
 
     void followerRun();

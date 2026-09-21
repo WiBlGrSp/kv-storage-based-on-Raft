@@ -121,50 +121,50 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
     //TODO:如果有日志,则进行日志处理
     //1.判断"前一条日志"是否匹配,如果匹配,进行追加
     //2.如果不匹配,更新reply中的nextIndex,告知leader下次发送
+
+    std::lock_guard<std::mutex> lck1(mu_state_);
+    if(this->current_term_ < request->term())
     {
-        std::lock_guard<std::mutex> lck1(mu_state_);
-        if(this->current_term_ < request->term())
-        {
-            //如果leader任期更新,则修改当前节点任期
-            this->current_term_ = request->term();
-            this->vote_for_ = -1;
-            this->state_ = State::Follower;
-            saveState();
-        }else 
-        if(this->current_term_> request->term())
-        {
-            //如果leader任期更旧,不做处理
-            response->set_term(this->current_term_);
-            response->set_success(false);
-            return;
-        }
-        response->set_term(this->current_term_);
-        //心跳成功
+        //如果leader任期更新,则修改当前节点任期
+        this->current_term_ = request->term();
+        this->vote_for_ = -1;
         this->state_ = State::Follower;
-        resetHeartBeatTimer();
+        saveState();
+    }else 
+    if(this->current_term_> request->term())
+    {
+        //如果leader任期更旧,不做处理
+        response->set_term(this->current_term_);
+        response->set_success(false);
+        return;
+    }
+    response->set_term(this->current_term_);
+    //心跳成功
+    this->state_ = State::Follower;
+    resetHeartBeatTimer();
 
-        //处理日志组
-        
-        //没有日志
-        if(request->entries_size() == 0)
-        {   
-            response->set_success( true);
-            //commit更新
-        }else
+    //处理日志组
+    
+    //没有日志
+    if(request->entries_size() == 0)
+    {   
+        response->set_success( true);
+
+    }else
+    {
+        //如果有日志
+
+        if(this->getLastIndex() < request->prev_index())
         {
-            //如果有日志
-
-            if(this->getLastIndex() < request->prev_index())
+            //从节点没有该日志
+            response->set_success(false);
+            // response->set_next_index(this->getLastIndex()+1);
+        }else 
+        {
+            //从节点有该日志
+            int prev_index = request->prev_index();
+            if(this->log_[prev_index].term == request->prev_term())
             {
-                //从节点没有该日志
-                response->set_success(false);
-                // response->set_next_index(this->getLastIndex()+1);
-            }else 
-            {
-                //从节点有该日志
-                int prev_index = request->prev_index();
-                if(this->log_[prev_index].term == request->prev_term())
-                {
                 //匹配成功
                 //删除之后的日志
                 this->log_.erase(this->log_.begin()+prev_index+1,this->log_.end());
@@ -174,8 +174,7 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
                 {
                     this->log_.emplace_back(Entry{e.index(),e.term(),e.cmd()});
                 }
-                response->set_next_index(this->getLastIndex()+1);
-                // this->commited_index_ = this->getLastIndex();
+                // response->set_next_index(this->getLastIndex()+1);
                 std::cout << "追加成功,当前日志为:" << std::endl;
                 for(const auto s : log_)
                 {
@@ -183,19 +182,26 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
                 }
                 //响应成功
                 response->set_success(true);
-                }else{
-                //匹配失败
+            }else{
+            //匹配失败
 
-                //删除当前日志及之后日志
-                this->log_.erase(this->log_.begin()+prev_index,this->log_.end());
-                //响应失败
-                response->set_success(false);
-                }
-
-
+            //删除当前日志及之后日志
+            this->log_.erase(this->log_.begin()+prev_index,this->log_.end());
+            //响应失败
+            response->set_success(false);
             }
-        
         }
+    
+    }
+    //commit更新
+    // printf("commited_index=%d\n",this->commited_index_);
+    // printf("request_commited_index=%d\n",request->commited_index());
+    if(commited_index_ < request->commited_index())
+    {
+        int snapshot = commited_index_;
+        commited_index_ = std::min(getLastIndex(),request->commited_index());
+        if(snapshot!=commited_index_)
+            commitLog(commited_index_);
     }
 }
 //广播要票请求
@@ -335,9 +341,8 @@ void RaftNode::sendHeartBeat(int id,const int term_snapshot)
             match_indexs_[id] = next_indexs_[id] + request.entries_size()-1;    //发送日志组最后一条记录的序号
             next_indexs_[id] = match_indexs_[id] +1;
             //TODO:检查commit,更新commitIndex,并提交
-            //updateCommit();
+            updateCommit();
         }
-
     }else
     {
         //如果心跳失败,递减next,下一次心跳重试
@@ -479,13 +484,59 @@ bool RaftNode::loadLog() {
     }
     return true;
 }
-bool RaftNode::commitLog()
+bool RaftNode::commitLog(int index)
 {
     std::stringstream ss;
     int size = log_.size();
-    for(size_t i = 1;i<=commited_index_;i++)
+    for(size_t i = 1;i<=index;i++)
     {
         ss << log_[i].index << ":" << log_[i].term << ":" << log_[i].cmd << "\n";
     }
     return persis_.saveRaftLog(ss.str());
+}
+bool RaftNode::updateCommit()
+{
+    //搜索最大的多数match序号res
+    int left = commited_index_ +1;
+    int right = getLastIndex();
+    int mid;
+    int count;
+    if(left >right)
+    {
+        return false;
+    }
+
+    while(left <=right)
+    {
+        mid = (left+right)/2;
+        count = 1;
+        //遍历match,统计数目
+        for(const auto [id,match] : match_indexs_)
+        {
+            if(mid <=match)
+                count++;
+        }
+        if(count >= (peers_.size()+1)/2+1)
+        {
+            left = mid + 1;
+        }else {
+            right = mid-1;
+        }
+    }
+    int res;
+    if(count >= (peers_.size()+1)/2+1)
+    {
+        res = mid;
+    }else{
+        res = mid-1;
+    }   
+    if(res!=commited_index_){
+        //提交日志,更新commit
+        if(commitLog(res))
+        {
+            commited_index_ = res;
+        }
+    }
+
+    return true;
 }
