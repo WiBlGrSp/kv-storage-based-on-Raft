@@ -131,6 +131,7 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
         }
         response->set_term(this->current_term_);
         //心跳成功
+        this->state_ = State::Follower;
         resetHeartBeatTimer();
         //如果没有日志
         if(request->entries_size() == 0)
