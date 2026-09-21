@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 #include <random>
 #ifndef RAFT_H
 #define RAFT_H
@@ -7,6 +8,7 @@
 #include "raftRPC.pb.h"
 #include<string>
 #include"RaftRPCClient.h"
+#include"Persister.h"
 //节点基本信息
 struct Node{
     bool connect_;
@@ -74,7 +76,8 @@ private:
     std::map<int,int>next_indexs_;
     //保存已经复制给每个节点的最后一条记录序号
     std::map<int,int>match_indexs_;
-
+private:
+    Persister persis_;  //持久化模块
 private:
     //初始化随机数发生器
     std::mt19937_64 MakeRng(int node_id) {
@@ -104,6 +107,19 @@ private:
     }
     //模拟客户端定期追加日志
     void cliLike();
+
+    //持久化函数
+    //保存current_term_和vote_for
+    bool saveState();
+    //加载current_term_和vote_for
+    bool loadState();   
+    //保存日志
+    bool saveLog();
+    //加载日志
+    bool loadLog();
+    //提交日志
+    bool commitLog();
+
 private:
 
     void followerRun();
@@ -120,7 +136,7 @@ public:
     void onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeatReply* response);
     void onRequestVote(const raft::VoteRequest* request,raft::VoteReply* response);
 public:
-    RaftNode(int id,const std::map<int,Node> nodes):me_(id),peers_(nodes),rng_(MakeRng(id)){
+    RaftNode(int id,const std::map<int,Node> nodes):me_(id),peers_(nodes),rng_(MakeRng(id)),persis_(id){
         peers_.erase(id);
         this->log_.push_back(Entry{});
     }

@@ -16,8 +16,8 @@ class Persister
 {
 private:
     std::mutex mtx_;
-    const std::string prefix_raft_state_ = "raft-state";
-    const std::string prefix_raft_log_ = "raft-log";
+    const std::string prefix_raft_state_ = "./data/raft-state";
+    const std::string prefix_raft_log_ = "./data/raft-log";
     std::string file_raft_state_;
     std::string file_raft_log_;
 public:

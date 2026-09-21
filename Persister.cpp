@@ -13,7 +13,7 @@ Persister::Persister(int id) {
 bool Persister::saveRaftState(const std::string &data) {
     std::lock_guard<std::mutex> lck(mtx_);
     std::ofstream ofs;
-    ofs.open(file_raft_state_+".tmp",std::ios::trunc|std::ios::out);
+    ofs.open(file_raft_state_+".tmp",std::ios::out|std::ios::trunc);
     if(!ofs.is_open()){
         printf("error: open_file failure!!!\n");
         return false;    
@@ -29,8 +29,13 @@ bool Persister::readRaftState(std::string&data) {
     std::ifstream ifs;
     ifs.open(file_raft_state_,std::ios::in);
     if(!ifs.is_open()){
-        printf("error: open_file failure!!!\n");
+        printf("error: file not found!!!\n");
         return false;    
+    }
+    else if(ifs.peek() == EOF)
+    {
+        printf("file empty!\n") ;
+        return false;
     }
     std::stringstream buffer;
     buffer << ifs.rdbuf();
@@ -42,7 +47,7 @@ bool Persister::readRaftState(std::string&data) {
 bool Persister::saveRaftLog(const std::string&data) {
     std::lock_guard<std::mutex> lck(mtx_);
     std::ofstream ofs;
-    ofs.open(file_raft_log_+".tmp",std::ios::trunc|std::ios::out);
+    ofs.open(file_raft_log_+".tmp",std::ios::out|std::ios::trunc);
     if(!ofs.is_open()){
         printf("error: open_file failure!!!\n");
         return false;    
@@ -58,8 +63,13 @@ bool Persister::readRaftLog(std::string&data) {
     std::ifstream ifs;
     ifs.open(file_raft_log_,std::ios::in);
     if(!ifs.is_open()){
-        printf("error: open_file failure!!!\n");
+        printf("error: file not found!!!\n");
         return false;    
+    }
+    else if(ifs.peek() == EOF)
+    {
+        printf("file empty!\n") ;
+        return false;
     }
     std::stringstream buffer;
     buffer << ifs.rdbuf();

@@ -5,8 +5,10 @@
 #include "raftRPC.pb.h"
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include<thread>
+#include <utility>
 void RaftNode::start() {
     {
         std::lock_guard<std::mutex> lck1(mu_state_);
@@ -17,6 +19,11 @@ void RaftNode::start() {
         vote_for_ = -1;
         is_heartbeat_ = false;
         is_election_success_ = false;
+        commited_index_ = 0;
+        last_applied_ = 0;
+        //加载持久化信息
+        loadState();
+        loadLog();
         //构建连接
         for(const auto[id,node]:peers_)
         {
@@ -65,6 +72,7 @@ void RaftNode::candidateRun() {
     //为自己投票
     vote_count_ =1;
     vote_for_ = me_;
+    saveState();
     printf("term=%d:参与选举\n",this->current_term_);
 
 
@@ -121,6 +129,7 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
             this->current_term_ = request->term();
             this->vote_for_ = -1;
             this->state_ = State::Follower;
+            saveState();
         }else 
         if(this->current_term_> request->term())
         {
@@ -228,6 +237,7 @@ void RaftNode::sendRequestVote(int id,const int term_snapshot)
         this->current_term_ = response.term();
         vote_for_ = -1;
         state_ = State::Follower;
+        saveState();
         return;
     }
     if(!(state_ == State::Candidate && this->current_term_ == term_snapshot))
@@ -251,7 +261,7 @@ void RaftNode::sendRequestVote(int id,const int term_snapshot)
 
 //广播心跳包
 void RaftNode::broadcastHeartBeat() {
-    //TODO:对每个结点判断是否有可发日志,并封装日志信息
+    //对每个结点判断是否有可发日志,并封装日志信息
     //任期快照
     int term_snapshot;
     {
@@ -307,6 +317,7 @@ void RaftNode::sendHeartBeat(int id,const int term_snapshot)
         this->current_term_ = response.term();
         vote_for_ = -1;
         state_ = State::Follower;
+        saveState();
         return;
     }
     if(!(this->state_ == State::Leader && this->current_term_ ==term_snapshot))
@@ -323,7 +334,7 @@ void RaftNode::sendHeartBeat(int id,const int term_snapshot)
             //更新match和next
             match_indexs_[id] = next_indexs_[id] + request.entries_size()-1;    //发送日志组最后一条记录的序号
             next_indexs_[id] = match_indexs_[id] +1;
-            //检查commit,更新commitIndex,并提交
+            //TODO:检查commit,更新commitIndex,并提交
             //updateCommit();
         }
 
@@ -333,7 +344,7 @@ void RaftNode::sendHeartBeat(int id,const int term_snapshot)
         next_indexs_[id] --;
     }
 
-    // //TODO:leader根据从结点返回的nextIndex更新对follower日志状态
+    //leader根据从结点返回的nextIndex更新对follower日志状态
 
     // if(response.next_index()>0)
     // {
@@ -353,6 +364,7 @@ void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* r
     {
         this->current_term_ = request->term();
         this->vote_for_ = request->candidate_id();
+        saveState();
         response->set_term(this->current_term_);
         response->set_vote_granted(true);
         printf("hhhhterm=%d:投票给%d\n",this->current_term_,this->vote_for_);
@@ -381,6 +393,7 @@ void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* r
     {
         this->current_term_ = request->term();
         this->vote_for_ = request->candidate_id();
+        saveState();
         response->set_term(this->current_term_);
         response->set_vote_granted(true);
         //投票成功,并
@@ -394,8 +407,8 @@ void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* r
 
 }
 void RaftNode::logInit() {
-    commited_index_ = 0;
-    last_applied_ = 0;
+    // commited_index_ = 0;
+    // last_applied_ = 0;
     for(const auto&[id,v]:peers_)
     {
         next_indexs_[id] = getLastIndex()+1;
@@ -420,4 +433,59 @@ void RaftNode::resetHeartBeatTimer() {
         this->is_heartbeat_ = true;
     }
     cond_heartbeat_.notify_one();
+}
+//必须外部持有锁
+bool RaftNode::saveState() {
+    std::string data;
+    data = std::to_string(current_term_) + ":" + std::to_string(vote_for_);
+    return persis_.saveRaftState(data);
+}
+bool RaftNode::loadState() {
+    std::string data;
+    bool res = persis_.readRaftState(data);
+    if(res == false)
+        return false;
+    auto it = data.find(":");
+    this->current_term_ = std::stoi(data.substr(0,it));
+    this->vote_for_ = std::stoi(data.substr(it+1));
+    printf("loadState :%d:%d\n",current_term_,vote_for_);
+    return true;
+}
+//必须外部持有锁
+bool RaftNode::saveLog() {
+
+    std::stringstream ss;
+    int size = log_.size();
+    for(size_t i = 1;i<=size;i++)
+    {
+        ss << log_[i].index << ":" << log_[i].term << ":" << log_[i].cmd << "\n";
+    }
+    return persis_.saveRaftLog(ss.str());
+}
+bool RaftNode::loadLog() {
+    std::string data;
+    persis_.readRaftLog(data);
+    std::stringstream ss(std::move(data));
+    std::string line;
+    while(std::getline(ss,line))
+    {
+        auto it1 = line.find(':');
+        auto it2 = line.find(':',it1+1);
+        int index = std::stoi(line.substr(0,it1));
+        int term = std::stoi(line.substr(it1+1,it2-it1-1));
+        std::string cmd = line.substr(it2+1);
+        this->log_.emplace_back(Entry{index,term,std::move(cmd)});
+        printf("loadLog:%d:%d:%s\n",index,term,cmd.c_str());
+    }
+    return true;
+}
+bool RaftNode::commitLog()
+{
+    std::stringstream ss;
+    int size = log_.size();
+    for(size_t i = 1;i<=commited_index_;i++)
+    {
+        ss << log_[i].index << ":" << log_[i].term << ":" << log_[i].cmd << "\n";
+    }
+    return persis_.saveRaftLog(ss.str());
 }

@@ -51,6 +51,7 @@ add_executable(raft
     main.cpp
     RaftRPCClient.cpp
     RaftRPC.cpp
+    Persister.cpp
 )
 
 target_link_libraries(raft
