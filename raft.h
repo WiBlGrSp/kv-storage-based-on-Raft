@@ -110,9 +110,9 @@ private:
     void candidateRun();
     void leaderRun();
     void broadcastRequestVote();
-    void sendRequestVote(int id);
+    void sendRequestVote(int id,const int term_snapshot);
     void broadcastHeartBeat();
-    void sendHeartBeat(int id);       
+    void sendHeartBeat(int id,const int term_snapshot);       
 public:
     void onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeatReply* response);
     void onRequestVote(const raft::VoteRequest* request,raft::VoteReply* response);
