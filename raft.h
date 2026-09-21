@@ -113,6 +113,9 @@ private:
     void sendRequestVote(int id,const int term_snapshot);
     void broadcastHeartBeat();
     void sendHeartBeat(int id,const int term_snapshot);       
+
+private:
+    void resetHeartBeatTimer();
 public:
     void onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeatReply* response);
     void onRequestVote(const raft::VoteRequest* request,raft::VoteReply* response);

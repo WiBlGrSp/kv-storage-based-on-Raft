@@ -48,8 +48,7 @@ void RaftNode::followerRun() {
         auto dest = std::chrono::steady_clock::now()+std::chrono::milliseconds(rng_()%300+500);
         cond_heartbeat_.wait_until(lck,dest,[this]()->bool{
             return is_heartbeat_ == true;
-        });
-        
+        });   
         //过期且未收到心跳包
         if(!is_heartbeat_)
         {
@@ -78,10 +77,14 @@ void RaftNode::candidateRun() {
     //设置选举定时器,定时为500~1000ms
     auto dest = std::chrono::steady_clock::now()+std::chrono::milliseconds( 300+rng_()%(5000-300));
     cond_election_success_.wait_until(lck,dest,[this]()->bool{
-        return is_election_success_ == true;
+        return is_election_success_ == true || this->state_ !=State::Candidate;
     });
     ulck.lock();
     //过期且未选举成功
+    if(this->state_ !=State::Candidate)
+    {
+        return;
+    }
     if(!is_election_success_)
     {
         printf("选举失败\n");
@@ -128,10 +131,7 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
         }
         response->set_term(this->current_term_);
         //心跳成功
-        {
-            std::lock_guard<std::mutex> lck2(mu_heartbeat_);
-            this->is_heartbeat_ = true;
-        }
+        resetHeartBeatTimer();
         //如果没有日志
         if(request->entries_size() == 0)
         {   
@@ -167,7 +167,6 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
         
         }
     }
-    cond_heartbeat_.notify_one();
 }
 //广播要票请求
 void RaftNode::broadcastRequestVote() {
@@ -323,8 +322,10 @@ void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* r
                 std::lock_guard<std::mutex>lck(mu_election_success_);
                 this->is_election_success_ = false;
             }
+            this->state_ = State::Follower;
             this->cond_election_success_.notify_one();
-        }
+        }else if(this->state_ == State::Follower)
+            resetHeartBeatTimer();
         this->state_ = State::Follower;
         return;
     }else
@@ -342,7 +343,9 @@ void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* r
         this->vote_for_ = request->candidate_id();
         response->set_term(this->current_term_);
         response->set_vote_granted(true);
+        //投票成功,并
         printf("term=%d:投票给%d\n",this->current_term_,this->vote_for_);
+        resetHeartBeatTimer();
         return;
     }
     response->set_term(this->current_term_);
@@ -371,4 +374,11 @@ void RaftNode::cliLike() {
         }
     });
     th.detach();
+}
+void RaftNode::resetHeartBeatTimer() {
+    {
+        std::lock_guard<std::mutex> lck2(mu_heartbeat_);
+        this->is_heartbeat_ = true;
+    }
+    cond_heartbeat_.notify_one();
 }
