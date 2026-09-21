@@ -18,7 +18,7 @@ void RaftNode::start() {
         is_heartbeat_ = false;
         is_election_success_ = false;
         //构建连接
-        for(const auto[id,node]:nodes_)
+        for(const auto[id,node]:peers_)
         {
             clis[id] = std::make_unique<RaftRPCClient>(node.address_);
         }
@@ -133,37 +133,57 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
         //心跳成功
         this->state_ = State::Follower;
         resetHeartBeatTimer();
-        //如果没有日志
+
+        //处理日志组
+        
+        //没有日志
         if(request->entries_size() == 0)
         {   
-            response->set_next_index(0);
-        }else{
-            //如果有日志,要进行检查,并附加日志
-            //从节点落后
-            if(request->prev_index() >this->getLastIndex())
+            response->set_success( true);
+            //commit更新
+        }else
+        {
+            //如果有日志
+
+            if(this->getLastIndex() < request->prev_index())
             {
+                //从节点没有该日志
                 response->set_success(false);
-                response->set_next_index(this->getLastIndex()+1);
-            }else if(request->prev_index() == this->getLastIndex())
+                // response->set_next_index(this->getLastIndex()+1);
+            }else 
             {
-                //匹配成功,附加日志
-                response->set_success(true);
-                auto entries = request->entries();
-                if(this->log_.empty())
+                //从节点有该日志
+                int prev_index = request->prev_index();
+                if(this->log_[prev_index].term == request->prev_term())
                 {
-                    this->log_.emplace_back(Entry{});
-                }
+                //匹配成功
+                //删除之后的日志
+                this->log_.erase(this->log_.begin()+prev_index+1,this->log_.end());
+                //追加新日志
+                auto entries = request->entries();
                 for(const auto e:entries)
                 {
                     this->log_.emplace_back(Entry{e.index(),e.term(),e.cmd()});
                 }
                 response->set_next_index(this->getLastIndex()+1);
-                this->commited_index_ = this->getLastIndex();
+                // this->commited_index_ = this->getLastIndex();
                 std::cout << "追加成功,当前日志为:" << std::endl;
                 for(const auto s : log_)
                 {
                     std::cout << "(" << s.index << ',' << s.term <<')' << s.cmd << std::endl;
                 }
+                //响应成功
+                response->set_success(true);
+                }else{
+                //匹配失败
+
+                //删除当前日志及之后日志
+                this->log_.erase(this->log_.begin()+prev_index,this->log_.end());
+                //响应失败
+                response->set_success(false);
+                }
+
+
             }
         
         }
@@ -178,7 +198,7 @@ void RaftNode::broadcastRequestVote() {
         std::lock_guard<std::mutex> lck(mu_state_);
         term_snapshot = this->current_term_;
     }
-    for(const auto&[id,node]:nodes_)
+    for(const auto&[id,node]:peers_)
     {
         std::thread th([this,id = id,term_snapshot](){
             sendRequestVote(id,term_snapshot);
@@ -218,7 +238,7 @@ void RaftNode::sendRequestVote(int id,const int term_snapshot)
     if(response.vote_granted() && this->state_ == State::Candidate && response.term() == request.term())
     {
         this->vote_count_++;
-        if(this->vote_count_>=(this->nodes_.size()+1)/2+1)
+        if(this->vote_count_>=(this->peers_.size()+1)/2+1)
         {
             {
                 std::lock_guard<std::mutex>lck(mu_election_success_);
@@ -238,7 +258,7 @@ void RaftNode::broadcastHeartBeat() {
         std::lock_guard<std::mutex> lck(mu_state_);
         term_snapshot = this->current_term_;
     }
-    for(const auto&[id,_] : nodes_)
+    for(const auto&[id,_] : peers_)
     {
         std::thread th([this,id = id,term_snapshot](){
             sendHeartBeat(id,term_snapshot);
@@ -261,7 +281,7 @@ void RaftNode::sendHeartBeat(int id,const int term_snapshot)
     request.set_commited_index(this->commited_index_);
     int prevIndex = this->next_indexs_[id]-1;
     //还有记录未发送,打包发送
-    if(getLastIndex() > prevIndex)
+    if(getLastIndex() >= this->next_indexs_[id])
     {
         request.set_prev_index(prevIndex);
         request.set_prev_term(this->log_[prevIndex].term);
@@ -293,14 +313,33 @@ void RaftNode::sendHeartBeat(int id,const int term_snapshot)
     {
         return;
     }
+    //根据从节点响应,分支
 
-    //TODO:leader根据从结点返回的nextIndex更新对follower日志状态
-
-    if(response.next_index()>0)
+    if(response.success())
     {
-        this->next_indexs_[id] = response.next_index();
-        this->match_indexs_[id] = response.next_index()-1;
-    } 
+        //如果心跳成功
+        if(request.entries_size()>0)
+        {
+            //更新match和next
+            match_indexs_[id] = next_indexs_[id] + request.entries_size()-1;    //发送日志组最后一条记录的序号
+            next_indexs_[id] = match_indexs_[id] +1;
+            //检查commit,更新commitIndex,并提交
+            //updateCommit();
+        }
+
+    }else
+    {
+        //如果心跳失败,递减next,下一次心跳重试
+        next_indexs_[id] --;
+    }
+
+    // //TODO:leader根据从结点返回的nextIndex更新对follower日志状态
+
+    // if(response.next_index()>0)
+    // {
+    //     this->next_indexs_[id] = response.next_index();
+    //     this->match_indexs_[id] = response.next_index()-1;
+    // } 
     //TODO:超过半数提交成功,则提交当前日志
     
 }
@@ -357,7 +396,7 @@ void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* r
 void RaftNode::logInit() {
     commited_index_ = 0;
     last_applied_ = 0;
-    for(const auto&[id,v]:nodes_)
+    for(const auto&[id,v]:peers_)
     {
         next_indexs_[id] = getLastIndex()+1;
         match_indexs_[id] = 0;
@@ -365,9 +404,8 @@ void RaftNode::logInit() {
 }
 void RaftNode::cliLike() {
     std::thread th([this](){
-        int i = 0;
-        this->log_.emplace_back(Entry{});
-        while(this->state_ == State::Leader)
+        int i = this->getLastIndex();
+        while(this->state_==State::Leader)
         {
             i++;
             this->log_.emplace_back(Entry{i,this->current_term_,"test_"+std::to_string(i)});

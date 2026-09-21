@@ -36,7 +36,7 @@ private:
     //本节点id
     int me_;    
     //除本节点外其他节点信息
-    std::map<int,Node> nodes_;
+    std::map<int,Node> peers_;
     //本节点状态 
     State state_;
     //当前任期   
@@ -64,7 +64,7 @@ private:
     std::mt19937_64 rng_;
 
     //日志复制相关状态
-    //日志容器
+    //日志容器,序号从1开始
     std::vector<Entry> log_; 
     //上次提交序号
     int commited_index_;
@@ -96,7 +96,7 @@ private:
     void logInit();
     int  getLastIndex()
     {
-        if(log_.size()==0)
+        if(log_.size()<=1)
         {
             return 0;
         }
@@ -120,8 +120,9 @@ public:
     void onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeatReply* response);
     void onRequestVote(const raft::VoteRequest* request,raft::VoteReply* response);
 public:
-    RaftNode(int id,const std::map<int,Node> nodes):me_(id),nodes_(nodes),rng_(MakeRng(id)){
-        nodes_.erase(id);
+    RaftNode(int id,const std::map<int,Node> nodes):me_(id),peers_(nodes),rng_(MakeRng(id)){
+        peers_.erase(id);
+        this->log_.push_back(Entry{});
     }
     ~RaftNode(){
 
