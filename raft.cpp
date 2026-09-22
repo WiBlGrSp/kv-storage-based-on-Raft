@@ -526,7 +526,8 @@ bool RaftNode::updateCommit()
     }else{
         res = mid-1;
     }   
-    if(res!=commited_index_){
+    //保证commitindex有改变,且提交日志为本任期,再进行提交
+    if(res!=commited_index_ && this->log_[res].term == this->current_term_){
         //提交日志,更新commit
         if(commitLog(res))
         {
