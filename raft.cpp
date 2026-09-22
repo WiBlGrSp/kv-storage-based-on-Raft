@@ -232,6 +232,9 @@ void RaftNode::sendRequestVote(int id,const int term_snapshot)
     }
     request.set_candidate_id(this->me_);
     request.set_term(this->current_term_);
+    //candidate发送日志追加情况
+    request.set_last_log_term(getLastTerm());
+    request.set_last_log_index(getLastIndex());
     lck.unlock();
     bool res = clis[id]->SendRequestVote(request,&response);
     if(!res)    return;
@@ -364,15 +367,13 @@ void RaftNode::sendHeartBeat(int id,const int term_snapshot)
 
 void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* response) {
     std::lock_guard<std::mutex> lck(mu_state_);
-    //降至Follower并投票
+    bool granted = false;   //是否投票
+    //任期更旧,更新任期状态
     if(this->current_term_ < request->term())
     {
         this->current_term_ = request->term();
-        this->vote_for_ = request->candidate_id();
+        this->vote_for_ = -1;
         saveState();
-        response->set_term(this->current_term_);
-        response->set_vote_granted(true);
-        printf("hhhhterm=%d:投票给%d\n",this->current_term_,this->vote_for_);
         if(this->state_ == State::Candidate)
         {
             {
@@ -381,35 +382,30 @@ void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* r
             }
             this->state_ = State::Follower;
             this->cond_election_success_.notify_one();
-        }else if(this->state_ == State::Follower)
-            resetHeartBeatTimer();
+        }else
         this->state_ = State::Follower;
-        return;
-    }else
-    //如果候选者过期,拒绝投票
-    if(this->current_term_ > request->term())
+    }
+    //如果任期一致,follower未投票,candidate至少比follower新或一致,则投票
+    if(this->current_term_ == request->term() && this->vote_for_ ==-1 && newerOrEqualLogs(request->last_log_term(),request->last_log_index()))
     {
-        response->set_term(this->current_term_);
-        response->set_vote_granted(false);
-        return;
-    }else
-    //如果没投票,
-    if(this->vote_for_ ==-1)
+        granted = true;
+    }else{
+        granted = false;
+    }
+    //投票,更新心跳定时器
+    if(granted)
     {
-        this->current_term_ = request->term();
         this->vote_for_ = request->candidate_id();
         saveState();
-        response->set_term(this->current_term_);
         response->set_vote_granted(true);
-        //投票成功,并
-        printf("term=%d:投票给%d\n",this->current_term_,this->vote_for_);
+        response->set_term(this->current_term_);
         resetHeartBeatTimer();
-        return;
+        printf("term=%d:投票给%d\n",this->current_term_,this->vote_for_);
+    }else
+    {
+        response->set_vote_granted(false);
+        response->set_term(this->current_term_);
     }
-    response->set_term(this->current_term_);
-    response->set_vote_granted(false);
-    return;
-
 }
 void RaftNode::logInit() {
     // commited_index_ = 0;

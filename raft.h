@@ -105,6 +105,24 @@ private:
         }
         return log_.back().index;
     }
+    int getLastTerm()
+    {
+        if(log_.size() <= 1)
+        {
+            return 0;
+        }
+        return log_.back().term;
+    }
+    //传入日志更新或一致,返回true
+    bool newerOrEqualLogs(int term,int index){
+        if(this->getLastTerm() < term)
+            return true;
+        else if(this->getLastTerm() > term)
+            return false;
+        if(this->getLastIndex() > index)
+            return false;
+        return true;
+    }
     //模拟客户端定期追加日志
     void cliLike();
 

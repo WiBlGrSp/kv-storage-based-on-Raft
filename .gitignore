@@ -3,5 +3,5 @@ cmake-build-*/
 logs/
 compile_commands.json
 .clangd
-./data/
+data/
 .vscode
