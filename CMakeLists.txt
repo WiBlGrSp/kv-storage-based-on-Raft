@@ -6,58 +6,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(Protobuf CONFIG QUIET)
-if(NOT Protobuf_FOUND)
-    find_package(Protobuf REQUIRED)
-endif()
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/lib")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 
 find_package(gRPC CONFIG REQUIRED)
+find_package(Protobuf REQUIRED)
 find_package(Threads REQUIRED)
 
-set(PROTO_FILE
-    "${CMAKE_CURRENT_SOURCE_DIR}/proto/raftRPC.proto"
-)
+# src包含了所有的相关代码
+add_subdirectory(src)
 
-add_library(raft_proto STATIC)
-
-protobuf_generate(
-    TARGET raft_proto
-    LANGUAGE cpp
-    PROTOS "${PROTO_FILE}"
-)
-
-protobuf_generate(
-    TARGET raft_proto
-    LANGUAGE grpc
-    GENERATE_EXTENSIONS .grpc.pb.h .grpc.pb.cc
-    PLUGIN "protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>"
-    PROTOS "${PROTO_FILE}"
-)
-
-target_include_directories(raft_proto
-    PUBLIC
-        "${CMAKE_CURRENT_BINARY_DIR}"
-        "${CMAKE_CURRENT_BINARY_DIR}/proto"
-)
-
-target_link_libraries(raft_proto
-    PUBLIC
-        protobuf::libprotobuf
-        gRPC::grpc++
-)
-
-add_executable(raft
-    raft.cpp
-    main.cpp
-    RaftRPCClient.cpp
-    RaftRPC.cpp
-    Persister.cpp
-)
-
-target_link_libraries(raft
-    PRIVATE
-        raft_proto
-        gRPC::grpc++
-        protobuf::libprotobuf
-        Threads::Threads
-)
+add_subdirectory(example)

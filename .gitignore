@@ -1,7 +1,8 @@
 build/
 cmake-build-*/
 logs/
-compile_commands.json
 .clangd
 data/
-.vscode
+bin/
+lib/
+.vscode/
