@@ -1,8 +1,11 @@
 #pragma once
-#include <memory>
-#include <random>
 #ifndef RAFT_H
 #define RAFT_H
+#include "KVStore.h"
+#include <future>
+#include <memory>
+#include <random>
+#include <utility>
 #include <condition_variable>
 #include <map>
 #include "raftRPC.pb.h"
@@ -27,6 +30,9 @@ struct Entry
 };
 //raft节点定义
 class RaftNode{
+private:
+    using myPromise = std::promise<bool>;
+    using myFuture = std::future<bool>;
 private:
     //节点状态枚举
     enum class State{
@@ -79,6 +85,9 @@ private:
 private:
     Persister persis_;  //持久化模块
 private:
+    std::map<std::pair<int,int>,std::shared_ptr<std::promise<bool>>> pendding_map_;   //外部请求等待
+    KVStore &state_machine_;
+private:
     //初始化随机数发生器
     std::mt19937_64 MakeRng(int node_id) {
     std::random_device rd;
@@ -94,6 +103,7 @@ private:
 
     return std::mt19937_64(seed);
     }
+//日志容器函数
 private:
     //日志相关状态初始化
     void logInit();
@@ -125,8 +135,8 @@ private:
     }
     //模拟客户端定期追加日志
     void cliLike();
-
-    //持久化函数
+//持久化函数
+private:
     //保存current_term_和vote_for
     bool saveState();
     //加载current_term_和vote_for
@@ -139,8 +149,8 @@ private:
     bool commitLog(int index);
     //检查,更新commit_index并提交
     bool updateCommit();
+//主干函数 和 RPC请求封装
 private:
-
     void followerRun();
     void candidateRun();
     void leaderRun();
@@ -148,14 +158,17 @@ private:
     void sendRequestVote(int id,const int term_snapshot);
     void broadcastHeartBeat();
     void sendHeartBeat(int id,const int term_snapshot);       
-
 private:
     void resetHeartBeatTimer();
+    //应用日志到状态机
+    void applyLoop();
+//RPC响应封装
 public:
     void onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeatReply* response);
     void onRequestVote(const raft::VoteRequest* request,raft::VoteReply* response);
 public:
-    RaftNode(int id,const std::map<int,Node> nodes):me_(id),peers_(nodes),rng_(MakeRng(id)),persis_(id){
+    RaftNode(int id,const std::map<int,Node> nodes,KVStore&kv_store)
+    :me_(id),peers_(nodes),rng_(MakeRng(id)),persis_(id),state_machine_(kv_store){
         peers_.erase(id);
         this->log_.push_back(Entry{});
     }
@@ -164,6 +177,9 @@ public:
     }
     //开启raft节点
     void start();
+public:
+    //外部调用,请求添加日志
+    myFuture propose(const std::string&cmd);
 };
 
 

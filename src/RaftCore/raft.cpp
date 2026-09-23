@@ -1,13 +1,16 @@
+#include"raft.h"
 #include <chrono>
 #include <cstdlib>
-#include"raft.h"
+#include "KVStore.h"
 #include "RaftRPCClient.h"
 #include "raftRPC.pb.h"
+#include <future>
 #include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include<thread>
+#include <tuple>
 #include <utility>
 void RaftNode::start() {
     {
@@ -29,6 +32,8 @@ void RaftNode::start() {
         {
             clis[id] = std::make_unique<RaftRPCClient>(node.address_);
         }
+        //状态机应用
+        applyLoop();
     }
     while(true)
     {
@@ -105,8 +110,8 @@ void RaftNode::candidateRun() {
         state_ = State::Leader;
         //初始化日志状态
         logInit();
-        //模拟客户端定期发送日志
-        cliLike();
+        // //模拟客户端定期发送日志
+        // cliLike();
         return;
     }
 }
@@ -536,4 +541,69 @@ bool RaftNode::updateCommit()
     }
 
     return true;
+}
+RaftNode::myFuture RaftNode::propose(const std::string&cmd)
+{
+    std::lock_guard<std::mutex> lck(mu_state_);
+    //不是领导者直接退出
+    if(this->state_ !=State::Leader)
+    {
+            myPromise p;
+            p.set_value(false);
+            return p.get_future();
+    }
+    //追加日志
+    int index = getLastIndex()+1;
+    int term = this->current_term_;
+    this->log_.emplace_back(Entry{index,term,cmd});
+    //将客户端请求添加到pendding,等待commit与apply成功
+    auto p = std::make_shared<myPromise>();
+    this->pendding_map_[std::pair<int, int>(index,term)] = p;
+    return p-> get_future();
+}
+void RaftNode::applyLoop()
+{
+    std::thread th([this](){
+        while(true)
+        {
+            {
+                std::lock_guard<std::mutex> lck(mu_state_);
+                if(this->state_==State::Leader && last_applied_ < commited_index_)
+                {
+                    while(last_applied_ < commited_index_)
+                    {
+                        int i = last_applied_+1;
+                        Entry &e = this->log_[i];
+                        //解析命令
+                        std::istringstream ss(e.cmd);
+                        std::string op;
+                        std::string key;
+                        std::string value;
+                        ss >> op >> key >> value;
+                        bool success = false;
+                        if(op == "put")
+                        {
+                            state_machine_.put(key,value);
+                            success = true;
+                        }
+                        else if(op == "del")
+                        {
+                            state_machine_.del(key);
+                            success = true;
+                        }
+                        auto index_for_pendding = std::make_pair(e.index,e.term);
+                        if(this->pendding_map_.find(index_for_pendding) !=pendding_map_.end())
+                        {
+                            auto p = this->pendding_map_[std::make_pair(e.index,e.term)];
+                            p->set_value(success);
+                            this->pendding_map_.erase(std::make_pair(e.index,e.term));
+                        }
+                        last_applied_++;
+                    }
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+    });
+    th.detach();
 }

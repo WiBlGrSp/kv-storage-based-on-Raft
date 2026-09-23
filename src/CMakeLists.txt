@@ -1,2 +1,4 @@
 add_subdirectory(proto)
 add_subdirectory(RaftCore)
+add_subdirectory(KVStateMachine)
+add_subdirectory(Storage)
