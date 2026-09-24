@@ -1,10 +1,11 @@
 #include"raft.h"
+#include <cassert>
 #include <chrono>
 #include <cstdlib>
 #include "KVStore.h"
 #include "RaftRPCClient.h"
 #include "raftRPC.pb.h"
-#include <future>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -14,14 +15,14 @@
 #include <utility>
 void RaftNode::start() {
     {
-        std::lock_guard<std::mutex> lck1(mu_state_);
+        std::lock_guard<std::mutex> lck1(mu_);
         //初始化节点信息
         state_ = State::Follower;
         current_term_ = 0;
         vote_count_ = 0;
         vote_for_ = -1;
-        is_heartbeat_ = false;
-        is_election_success_ = false;
+        // is_heartbeat_ = false;
+        // is_election_success_ = false;
         commited_index_ = 0;
         last_applied_ = 0;
         //加载持久化信息
@@ -35,99 +36,99 @@ void RaftNode::start() {
         //状态机应用
         applyLoop();
     }
-    while(true)
-    {
-        switch (state_) {
-            case State::Follower:
-                followerRun();
-            break;
-            case State::Candidate:
-                candidateRun();
-            break;
-            case State::Leader:
-                leaderRun();
-            break;
-        }
-    }
+    ticker();
+    // while(true)
+    // {
+    //     switch (state_) {
+    //         case State::Follower:
+    //             followerRun();
+    //         break;
+    //         case State::Candidate:
+    //             candidateRun();
+    //         break;
+    //         case State::Leader:
+    //             leaderRun();
+    //         break;
+    //     }
+    // }
 }
 
-void RaftNode::followerRun() {
+// void RaftNode::followerRun() {
 
-    {
-        std::unique_lock<std::mutex> lck(mu_heartbeat_);
-        is_heartbeat_ = false;
-        //设置心跳定时器,定时为100~200ms
-        auto dest = std::chrono::steady_clock::now()+std::chrono::milliseconds(rng_()%300+500);
-        cond_heartbeat_.wait_until(lck,dest,[this]()->bool{
-            return is_heartbeat_ == true;
-        });   
-        //过期且未收到心跳包
-        if(!is_heartbeat_)
-        {
-            state_ = State::Candidate;
-            return;
-        }
-    }
-}
-void RaftNode::candidateRun() {
+//     {
+//         std::unique_lock<std::mutex> lck(mu_);
+//         is_heartbeat_ = false;
+//         //设置心跳定时器,定时为100~200ms
+//         auto dest = std::chrono::steady_clock::now()+std::chrono::milliseconds(rng_()%300+500);
+//         cond_.wait_until(lck,dest,[this]()->bool{
+//             return is_heartbeat_ == true;
+//         });   
+//         //过期且未收到心跳包
+//         if(!is_heartbeat_)
+//         {
+//             state_ = State::Candidate;
+//             return;
+//         }
+//     }
+// }
+// void RaftNode::candidateRun() {
 
-    std::unique_lock<std::mutex> ulck(mu_state_);
-    //修改任期
-    current_term_ ++;
-    //为自己投票
-    vote_count_ =1;
-    vote_for_ = me_;
-    saveState();
-    printf("term=%d:参与选举\n",this->current_term_);
+//     std::unique_lock<std::mutex> ulck(mu_);
+//     //修改任期
+//     current_term_ ++;
+//     //为自己投票
+//     vote_count_ =1;
+//     vote_for_ = me_;
+//     saveState();
+//     printf("term=%d:参与选举\n",this->current_term_);
 
 
-    ulck.unlock();
-    //广播要票请求
-    broadcastRequestVote();
-    //启动选举定时器,过期则降为follower
-    std::unique_lock<std::mutex> lck(mu_election_success_);
-    is_election_success_ = false;
-    //设置选举定时器,定时为500~1000ms
-    auto dest = std::chrono::steady_clock::now()+std::chrono::milliseconds( 300+rng_()%(5000-300));
-    cond_election_success_.wait_until(lck,dest,[this]()->bool{
-        return is_election_success_ == true || this->state_ !=State::Candidate;
-    });
-    ulck.lock();
-    //过期且未选举成功
-    if(this->state_ !=State::Candidate)
-    {
-        return;
-    }
-    if(!is_election_success_)
-    {
-        printf("选举失败\n");
-        state_ = State::Follower;
-        return;
-    }else
-    {
-        printf("选举成功\n");
-        //选举成功
-        state_ = State::Leader;
-        //初始化日志状态
-        logInit();
-        // //模拟客户端定期发送日志
-        // cliLike();
-        return;
-    }
-}
-void RaftNode::leaderRun() {
+//     ulck.unlock();
+//     //广播要票请求
+//     broadcastRequestVote();
+//     //启动选举定时器,过期则降为follower
+//     ulck.lock();
+//     is_election_success_ = false;
+//     //设置选举定时器,定时为500~1000ms
+//     auto dest = std::chrono::steady_clock::now()+std::chrono::milliseconds( 300+rng_()%(5000-300));
+//     cond_.wait_until(ulck,dest,[this]()->bool{
+//         return is_election_success_ == true || this->state_ !=State::Candidate;
+//     });
+//     ulck.lock();
+//     //过期且未选举成功
+//     if(this->state_ !=State::Candidate)
+//     {
+//         return;
+//     }
+//     if(!is_election_success_)
+//     {
+//         printf("选举失败\n");
+//         return;
+//     }else
+//     {
+//         printf("选举成功\n");
+//         //选举成功
+//         state_ = State::Leader;
+//         //初始化日志状态
+//         logInit();
+//         // //模拟客户端定期发送日志
+//         // cliLike();
+//         return;
+//     }
+// }
+// void RaftNode::leaderRun() {
 
-    //每隔100ms广播心跳包
-    broadcastHeartBeat();       
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-}
+//     //每隔100ms广播心跳包
+//     broadcastHeartBeat();       
+//     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+// }
 void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeatReply* response) {
     
     //TODO:如果有日志,则进行日志处理
     //1.判断"前一条日志"是否匹配,如果匹配,进行追加
     //2.如果不匹配,更新reply中的nextIndex,告知leader下次发送
 
-    std::lock_guard<std::mutex> lck1(mu_state_);
+    std::unique_lock<std::mutex> lck1(mu_);
     if(this->current_term_ < request->term())
     {
         //如果leader任期更新,则修改当前节点任期
@@ -143,10 +144,13 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
         response->set_success(false);
         return;
     }
+    //同任期
     response->set_term(this->current_term_);
-    //心跳成功
     this->state_ = State::Follower;
-    resetHeartBeatTimer();
+
+    //心跳成功,重置选举定时器
+    resetElectionTimerLocked();
+
 
     //处理日志组
     
@@ -172,8 +176,13 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
             {
                 //匹配成功
                 //删除之后的日志
-                this->log_.erase(this->log_.begin()+prev_index+1,this->log_.end());
-                //追加新日志
+                auto begin = this->log_.begin()+prev_index+1;
+                if(begin>=this->log_.begin() && begin < this->log_.end())
+                    this->log_.erase(begin,this->log_.end());
+                else
+                    std::cerr << "[ERROR]:log index overflow";
+                    
+                    //追加新日志
                 auto entries = request->entries();
                 for(const auto e:entries)
                 {
@@ -191,8 +200,12 @@ void RaftNode::onHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
             //匹配失败
 
             //删除当前日志及之后日志
-            this->log_.erase(this->log_.begin()+prev_index,this->log_.end());
-            //响应失败
+            auto begin = this->log_.begin()+prev_index;
+            if(begin>=this->log_.begin() && begin < this->log_.end())
+                this->log_.erase(begin,this->log_.end());
+            else
+                std::cerr << "[ERROR]:log index overflow";
+                //响应失败
             response->set_success(false);
             }
         }
@@ -215,7 +228,7 @@ void RaftNode::broadcastRequestVote() {
     //任期快照
     int term_snapshot;
     {
-        std::lock_guard<std::mutex> lck(mu_state_);
+        std::lock_guard<std::mutex> lck(mu_);
         term_snapshot = this->current_term_;
     }
     for(const auto&[id,node]:peers_)
@@ -230,7 +243,7 @@ void RaftNode::sendRequestVote(int id,const int term_snapshot)
 {
     raft::VoteRequest request;
     raft::VoteReply response;
-    std::unique_lock<std::mutex> lck(mu_state_);
+    std::unique_lock<std::mutex> lck(mu_);
     if(!(state_ == State::Candidate && this->current_term_ == term_snapshot))
     {
         return;
@@ -252,6 +265,7 @@ void RaftNode::sendRequestVote(int id,const int term_snapshot)
         vote_for_ = -1;
         state_ = State::Follower;
         saveState();
+        resetElectionTimerLocked();
         return;
     }
     if(!(state_ == State::Candidate && this->current_term_ == term_snapshot))
@@ -262,13 +276,12 @@ void RaftNode::sendRequestVote(int id,const int term_snapshot)
     if(response.vote_granted() && this->state_ == State::Candidate && response.term() == request.term())
     {
         this->vote_count_++;
+        //选举成功
         if(this->vote_count_>=(this->peers_.size()+1)/2+1)
         {
-            {
-                std::lock_guard<std::mutex>lck(mu_election_success_);
-                this->is_election_success_=true;
-            }
-            cond_election_success_.notify_one();
+            this->state_ = State::Leader;
+            logInit();
+            resetHeartBeatTimerLocked();
         }
     }
 }
@@ -279,7 +292,7 @@ void RaftNode::broadcastHeartBeat() {
     //任期快照
     int term_snapshot;
     {
-        std::lock_guard<std::mutex> lck(mu_state_);
+        std::lock_guard<std::mutex> lck(mu_);
         term_snapshot = this->current_term_;
     }
     for(const auto&[id,_] : peers_)
@@ -294,7 +307,7 @@ void RaftNode::sendHeartBeat(int id,const int term_snapshot)
 {
     raft::HeartBeatRequest request;
     raft::HeartBeatReply response;
-    std::unique_lock<std::mutex>lck1(mu_state_);
+    std::unique_lock<std::mutex>lck1(mu_);
     //封装请求包
     if(!(this->state_ == State::Leader && this->current_term_ ==term_snapshot))
     {
@@ -308,7 +321,12 @@ void RaftNode::sendHeartBeat(int id,const int term_snapshot)
     if(getLastIndex() >= this->next_indexs_[id])
     {
         request.set_prev_index(prevIndex);
-        request.set_prev_term(this->log_[prevIndex].term);
+        if(prevIndex>=0)
+        {
+            request.set_prev_term(this->log_[prevIndex].term);
+        }else{
+            std::cerr << "[ERROR]: prevIndex negative" ;
+        }
         for(auto it = this->log_.begin()+prevIndex+1;it!=this->log_.end();it++)
         {
             auto e = request.add_entries();
@@ -324,6 +342,10 @@ void RaftNode::sendHeartBeat(int id,const int term_snapshot)
     if(!res)    return;
     lck1.lock();
     //接收并解析响应
+    if(!(this->state_ == State::Leader && this->current_term_ ==term_snapshot))
+    {
+        return;
+    }
 
     //如果自己任期更旧,降至follower状态
     if(this->current_term_ < response.term())
@@ -332,12 +354,10 @@ void RaftNode::sendHeartBeat(int id,const int term_snapshot)
         vote_for_ = -1;
         state_ = State::Follower;
         saveState();
+        resetElectionTimerLocked();
         return;
     }
-    if(!(this->state_ == State::Leader && this->current_term_ ==term_snapshot))
-    {
-        return;
-    }
+
     //根据从节点响应,分支
 
     if(response.success())
@@ -371,24 +391,16 @@ void RaftNode::sendHeartBeat(int id,const int term_snapshot)
     
 
 void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* response) {
-    std::lock_guard<std::mutex> lck(mu_state_);
+    std::lock_guard<std::mutex> lck(mu_);
     bool granted = false;   //是否投票
     //任期更旧,更新任期状态
     if(this->current_term_ < request->term())
     {
         this->current_term_ = request->term();
         this->vote_for_ = -1;
-        saveState();
-        if(this->state_ == State::Candidate)
-        {
-            {
-                std::lock_guard<std::mutex>lck(mu_election_success_);
-                this->is_election_success_ = false;
-            }
-            this->state_ = State::Follower;
-            this->cond_election_success_.notify_one();
-        }else
         this->state_ = State::Follower;
+        saveState();
+        resetElectionTimerLocked();
     }
     //如果任期一致,follower未投票,candidate至少比follower新或一致,则投票
     if(this->current_term_ == request->term() && this->vote_for_ ==-1 && newerOrEqualLogs(request->last_log_term(),request->last_log_index()))
@@ -404,7 +416,7 @@ void RaftNode::onRequestVote(const raft::VoteRequest* request,raft::VoteReply* r
         saveState();
         response->set_vote_granted(true);
         response->set_term(this->current_term_);
-        resetHeartBeatTimer();
+        resetElectionTimerLocked();
         printf("term=%d:投票给%d\n",this->current_term_,this->vote_for_);
     }else
     {
@@ -433,13 +445,7 @@ void RaftNode::cliLike() {
     });
     th.detach();
 }
-void RaftNode::resetHeartBeatTimer() {
-    {
-        std::lock_guard<std::mutex> lck2(mu_heartbeat_);
-        this->is_heartbeat_ = true;
-    }
-    cond_heartbeat_.notify_one();
-}
+
 //必须外部持有锁
 bool RaftNode::saveState() {
     std::string data;
@@ -544,7 +550,7 @@ bool RaftNode::updateCommit()
 }
 RaftNode::myFuture RaftNode::propose(const std::string&cmd)
 {
-    std::lock_guard<std::mutex> lck(mu_state_);
+    std::lock_guard<std::mutex> lck(mu_);
     //不是领导者直接退出
     if(this->state_ !=State::Leader)
     {
@@ -567,7 +573,7 @@ void RaftNode::applyLoop()
         while(true)
         {
             {
-                std::lock_guard<std::mutex> lck(mu_state_);
+                std::lock_guard<std::mutex> lck(mu_);
                 if(this->state_==State::Leader && last_applied_ < commited_index_)
                 {
                     while(last_applied_ < commited_index_)
@@ -606,4 +612,80 @@ void RaftNode::applyLoop()
         }
     });
     th.detach();
+}
+
+void RaftNode::ticker() {
+    {
+        std::lock_guard<std::mutex> lck(mu_);
+        if(this->state_ == State::Leader)
+        {
+            resetHeartBeatTimerLocked();
+        }else{
+            resetElectionTimerLocked();
+        }
+    }
+    std::unique_lock<std::mutex> lck(mu_);
+    while(true)
+    {
+        //等待超时或唤醒
+        cond_.wait_until(lck,deadline_);
+        //如果是超时
+        auto now = std::chrono::steady_clock::now();
+        if(now>=deadline_)
+        {
+            //触发超时
+            switch (state_) {
+                case State::Follower:
+                case State::Candidate:
+                    lck.unlock();
+                    onElectionTimeout();
+                    lck.lock();
+                    resetElectionTimerLocked();
+                    break;
+                case State::Leader:
+                    lck.unlock();
+                    onHeartBeatTimeout();
+                    lck.lock();
+                    resetHeartBeatTimerLocked();
+                    break;
+            }
+        }else{
+            continue;   //发生重置,重睡
+        }
+    }
+}
+void RaftNode::resetElectionTimerLocked() {
+
+    auto timeout = std::chrono::milliseconds(500+rng_()%500);
+
+    if(this->state_ == State::Candidate)
+    {
+        timeout +=  std::chrono::milliseconds(1000);
+    }        
+    deadline_ = std::chrono::steady_clock::now() + timeout;
+    cond_.notify_all();
+}
+void RaftNode::resetHeartBeatTimerLocked() {
+    if(state_ == State::Leader)
+    {
+        auto timeout = std::chrono::milliseconds(50);
+        deadline_ = std::chrono::steady_clock::now()+timeout;
+        cond_.notify_all();
+    }
+}
+void RaftNode::onElectionTimeout() {
+    {
+        std::lock_guard<std::mutex> lck(mu_);
+        current_term_ ++;
+        vote_count_ =1;
+        vote_for_ = me_;
+        this->state_ = State::Candidate;
+        saveState();
+        printf("term=%d:参与选举\n",this->current_term_);
+    }
+    //广播要票请求
+    broadcastRequestVote();
+}
+void RaftNode::onHeartBeatTimeout() {
+    broadcastHeartBeat();
 }

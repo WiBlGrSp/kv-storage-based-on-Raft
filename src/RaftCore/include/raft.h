@@ -1,4 +1,5 @@
 #pragma once
+#include <mutex>
 #ifndef RAFT_H
 #define RAFT_H
 #include "KVStore.h"
@@ -53,19 +54,19 @@ private:
     int vote_count_;
     //本轮投票所给节点id, 若没投票则为-1
     int vote_for_;  
-    //接收到心跳包
-    bool is_heartbeat_;
-    //选举成功
-    bool is_election_success_;
+    // //接收到心跳包
+    // bool is_heartbeat_;
+    // //选举成功
+    // bool is_election_success_;
 
-    //资源锁
-    std::mutex mu_state_;
+    //定时资源
+    std::mutex mu_;
+    std::condition_variable cond_;
+    std::chrono::steady_clock::time_point deadline_;    //超时时间点
+    // std::mutex mu_heartbeat_;
 
-    std::condition_variable cond_heartbeat_;
-    std::mutex mu_heartbeat_;
-
-    std::condition_variable cond_election_success_;
-    std::mutex mu_election_success_;
+    // std::condition_variable cond_election_success_;
+    // std::mutex mu_election_success_;
     //除本节点外其他RPC客户端
     std::map<int,std::shared_ptr<RaftRPCClient>> clis;
     //随机数发生器
@@ -159,7 +160,7 @@ private:
     void broadcastHeartBeat();
     void sendHeartBeat(int id,const int term_snapshot);       
 private:
-    void resetHeartBeatTimer();
+    // void resetHeartBeatTimer();
     //应用日志到状态机
     void applyLoop();
 //RPC响应封装
@@ -177,6 +178,17 @@ public:
     }
     //开启raft节点
     void start();
+private:
+    //定时器函数
+    void ticker();
+    //重置选举定时器
+    void resetElectionTimerLocked();
+    //重新心跳定时器
+    void resetHeartBeatTimerLocked();
+    //选举超时行为
+    void onElectionTimeout();
+    //心跳超时行为
+    void onHeartBeatTimeout();
 public:
     //外部调用,请求添加日志
     myFuture propose(const std::string&cmd);
