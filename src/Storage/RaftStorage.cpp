@@ -18,14 +18,10 @@ bool RaftStorage::put(const std::string&key,const std::string &value) {
     //异步:超时等待raft应用响应
     auto status = fu.wait_for(std::chrono::milliseconds(400));
     //超时或raft提交失败,返回false
-    if(status == std::future_status::ready)
+    if(status == std::future_status::ready && fu.get() == true)
     {
-        auto res = fu.get();
-        if(res == true)
-        {
-            std::cout << "[SUCCESS]:put " << key << ' ' << value << std::endl;
-        }
-        return res;
+        std::cout << "[SUCCESS]:put " << key << ' ' << value << std::endl;
+        return true;
     }
     return false;    
 }
@@ -37,5 +33,5 @@ bool RaftStorage::get(const std::string&key,std::string&value) {
         value="";
     else
         std::cout << "[SUCCESS]:get " << key << ' ' << value << std::endl;
-    return true;
+    return res;
 }
