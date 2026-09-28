@@ -1,4 +1,7 @@
-add_subdirectory(proto)
+add_subdirectory(raftProto)
+add_subdirectory(serverProto)
 add_subdirectory(RaftCore)
 add_subdirectory(KVStateMachine)
 add_subdirectory(Storage)
+add_subdirectory(Server)
+add_subdirectory(Client)

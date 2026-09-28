@@ -2,9 +2,25 @@ add_executable(raft_example
     main.cpp
 )
 
+
 target_link_libraries(raft_example
     PRIVATE
         raft_core
         raft_storage
         kv_store
+)
+
+add_executable(server_test
+    server_test.cpp
+)
+target_link_libraries(server_test
+    PRIVATE
+        Server
+)
+add_executable(client_test
+    client_test.cpp
+)
+target_link_libraries(client_test
+    PRIVATE
+        Client
 )

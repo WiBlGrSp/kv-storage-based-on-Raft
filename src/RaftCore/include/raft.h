@@ -17,6 +17,7 @@
 struct Node{
     bool connect_;
     std::string address_;
+    Node(){};
     Node(const std::string&address):address_(address){
         connect_ = true;
     }

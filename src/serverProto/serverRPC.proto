@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package ser;
+
+service serverRPC
+{
+    //是否为leader节点
+    rpc isLeader(isLeaderRequest) returns (isLeaderResponse);
+    //执行kv操作指令
+    rpc execute(executeRequest) returns (executeResponse);
+}
+message isLeaderRequest{
+
+}
+message isLeaderResponse{
+    bool is_leader = 1;
+}
+message executeRequest{
+    string op = 1;
+    string key = 2;
+    string value = 3;
+}
+message executeResponse{
+    bool is_leader = 1;
+    bool success = 2;
+    string key = 3;
+    string value = 4;
+}

@@ -11,6 +11,7 @@ class Storage{
     //获取键对应的值,value=''表示该键不存在
     //return : 成功获取返回true,获取失败返回false
     virtual bool get(const std::string&key,std::string&value)=0;
+    virtual ~Storage()=default;
 };
 
 #endif //!STORAGE_H
