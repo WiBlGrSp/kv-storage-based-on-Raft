@@ -33,5 +33,5 @@ bool RaftStorage::get(const std::string&key,std::string&value) {
         value="";
     else
         std::cout << "[SUCCESS]:get " << key << ' ' << value << std::endl;
-    return res;
+    return true;
 }

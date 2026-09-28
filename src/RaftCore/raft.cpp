@@ -279,6 +279,7 @@ void RaftNode::sendRequestVote(int id,const int term_snapshot)
         //选举成功
         if(this->vote_count_>=(this->peers_.size()+1)/2+1)
         {
+            std::cout<< me_ << "is leader" << std::endl; 
             this->state_ = State::Leader;
             logInit();
             resetHeartBeatTimerLocked();

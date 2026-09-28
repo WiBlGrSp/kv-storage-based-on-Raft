@@ -12,18 +12,51 @@ Server::Server(int me,const std::string&address,std::map<int,std::string>peers):
 }
 
 bool Server::isLeader(const ser::isLeaderRequest* request,ser::isLeaderResponse* response) {
-    std::cout<<"[CALL]:isLeader" << std::endl;
-    response->set_is_leader(true);
+    response->set_is_leader(this->raft_node_->isLeader());
     return true;
 }
 bool Server::execute(const ser::executeRequest*request, ser::executeResponse*response) {
-    request->op();
-    auto key = request->key();
-    auto value = request->value();
+    // request->op();
+    // auto key = request->key();
+    // auto value = request->value();
+    // response->set_is_leader(true);
+    // response->set_success(true);
+    // response->set_key(key);
+    // response->set_value(value);
+    std::string op = request->op();
+    std::string key = request->key();
+    std::string value = request->value();
+    std::cout << "[EXECUTE]:" <<op << ":" << key <<" " << value << std::endl;
+    bool success;
+    if(!this->raft_node_->isLeader())
+    {
+        response->set_is_leader(false);
+        response->set_success(false);
+        return false;
+    }
+    if(op == "get")
+    {
+        success = storage_->get(key,value);
+    }else if(op == "put")
+    {
+        success = storage_->put(key,value);
+    }else if(op == "del")
+    {
+        success = storage_->put(key,"");
+    }else{
+        std::cerr << "[ERROR]:输入命令不合法" ;
+        success = false;
+    }
+    response->set_success(success);
     response->set_is_leader(true);
-    response->set_success(true);
-    response->set_key(key);
-    response->set_value(value);
+    if(success)
+    {
+        response->set_key(key);
+        response->set_value(value);
+        return true;
+    }else{
+        return false;
+    }
     return true;
 }
 void Server::start() {

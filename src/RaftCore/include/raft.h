@@ -61,7 +61,7 @@ private:
     // bool is_election_success_;
 
     //定时资源
-    std::mutex mu_;
+    mutable std::mutex mu_;
     std::condition_variable cond_;
     std::chrono::steady_clock::time_point deadline_;    //超时时间点
     // std::mutex mu_heartbeat_;
@@ -193,6 +193,14 @@ private:
 public:
     //外部调用,请求添加日志
     myFuture propose(const std::string&cmd);
+
+public:
+    //Server调用,公开leader状态
+    bool isLeader()const
+    {
+        std::lock_guard<std::mutex> lck(mu_);
+        return this->state_ == State::Leader;
+    }
 };
 
 

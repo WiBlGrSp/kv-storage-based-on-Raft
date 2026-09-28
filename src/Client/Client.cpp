@@ -2,6 +2,7 @@
 #include "Client.h"
 #include "serverRPC.pb.h"
 #include <chrono>
+#include <grpcpp/support/status.h>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -44,13 +45,11 @@ void Client::connect() {
                 bool su = chan->isLeader(args,&res);
                 if(su && res.is_leader())
                 {
-                    {
-                        std::lock_guard<std::mutex> lc(mu_);
-                        is_connect_ = true;
-                        leader_chan_ = chan;
-                        cond_.notify_all();
-                        std::cout <<"[CONNECT]:SUCCESS" << std::endl;
-                    }
+                    std::lock_guard<std::mutex> lc(mu_);
+                    is_connect_ = true;
+                    leader_chan_ = chan;
+                    cond_.notify_all();
+                    std::cout <<"[CONNECT]:SUCCESS" << std::endl;
                 }
             });
             th.detach();
@@ -95,36 +94,33 @@ void Client::userLoop() {
             std::cerr << "[ERROR]:非法命令" ;
             continue;
         }
+        // std::cout << "用户输入命令:" << op << ':' <<key <<':' <<value << std::endl;
+
         //执行命令
         ser::executeRequest args;
+        args.set_op(op);
+        args.set_key(key);
+        args.set_value(value);
         ser::executeResponse res;
 
         while(true){
             bool su = leader_chan_->execute(args,&res);
             //根据响应,判断是否重连
-            if(su == false)
-            {
-                std::cerr<<"[ERROR]:对端超时,重试中";
-                continue;
-            }else{
                 //重试命令
-                if(res.is_leader() ==false)
-                {
-                    is_connect_ = false;
-                    connect();
-                    continue;;
-                }else{
-                    if(res.success())
-                    {
-                        //执行成功
-                        break;
-                    }else{
-                        std::cerr << "[ERROR]:执行失败";
-                        continue;
-                    }
-                }
+            if(!su || res.is_leader() ==false)
+            {
+                is_connect_ = false;
+                connect();
+                continue;;
+            }else{
+                break;
             }
-        }   
+        }
+        if(!res.success())
+        {
+            std::cerr << "[ERROR]:服务端执行失败";
+            continue;
+        }
         //返回响应给用户
         if(op=="get")
         {
