@@ -16,7 +16,10 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
 find_package(gRPC CONFIG REQUIRED)
 find_package(Protobuf REQUIRED)
 find_package(Threads REQUIRED)
-
+# find_program(CLANG_TIDY_BIN NAMES "clang-tidy")
+# if(CLANG_TIDY_BIN)
+#   set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_BIN}" "-checks=*")
+# endif()
 # src包含了所有的相关代码
 add_subdirectory(src)
 

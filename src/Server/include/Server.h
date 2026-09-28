@@ -2,11 +2,11 @@
 
 #ifndef SERVER_H
 #define SERVER_H
-#include"serverRPC.pb.h"
-#include "KVStore.h"
-#include "raft.h"
+#include"server_rpc.pb.h"
+#include "kv_store.h"
+#include "raft_node.h"
 #include <grpcpp/server.h>
-#include"Storage.h"
+#include"storage.h"
 
 //服务器类
 class Server
@@ -25,12 +25,12 @@ public:
     Server(int me,const std::string&address,std::map<int,std::string>peers);
     ~Server();
     //提供给RPC的回调函数
-    bool isLeader(const ser::isLeaderRequest* request,ser::isLeaderResponse* response);
-    bool execute(const ser::executeRequest*request, ser::executeResponse*response);
+    bool IsLeader(const ser::isLeaderRequest* request,ser::isLeaderResponse* response);
+    bool Execute(const ser::executeRequest*request, ser::executeResponse*response);
     //启动服务器
-    void start();
+    void Start();
     //启动RPC服务
-    void startRPC();
+    void StartRPC();
 };
 
 #endif //!SERVER_H

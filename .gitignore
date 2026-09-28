@@ -6,3 +6,4 @@ data/
 bin/
 lib/
 .vscode/
+.clang-tidy

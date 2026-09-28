@@ -1,7 +1,7 @@
 
 add_library(Server STATIC
-    Server.cpp
-    ServerRPC.cpp
+    server.cpp
+    server_rpc.cpp
 )
 
 target_include_directories(Server

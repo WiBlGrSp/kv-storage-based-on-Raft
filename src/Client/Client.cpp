@@ -1,6 +1,6 @@
 
-#include "Client.h"
-#include "serverRPC.pb.h"
+#include "client.h"
+#include "server_rpc.pb.h"
 #include <chrono>
 #include <grpcpp/support/status.h>
 #include <memory>
@@ -12,10 +12,10 @@ bool RPCChan::isLeader(const ser::isLeaderRequest&args,ser::isLeaderResponse *re
     grpc::ClientContext context;
     context.set_deadline(std::chrono::system_clock::now()+std::chrono::seconds(3));
     //调用RPC
-    const grpc::Status status = stub_->isLeader(&context,args,response);
-    if (!status.ok()) {
+    const grpc::Status kStatus = stub_->isLeader(&context,args,response);
+    if (!kStatus.ok()) {
         std::cerr << "RPC failed: "
-              << status.error_message() << '\n';
+              << kStatus.error_message() << '\n';
         return false;
     }
     return true;
@@ -24,10 +24,10 @@ bool RPCChan::execute(const ser::executeRequest&args,ser::executeResponse *respo
     grpc::ClientContext context;
     context.set_deadline(std::chrono::system_clock::now()+std::chrono::seconds(3));
     //调用RPC
-    const grpc::Status status = stub_->execute(&context,args,response);
-    if (!status.ok()) {
+    const grpc::Status kStatus = stub_->execute(&context,args,response);
+    if (!kStatus.ok()) {
         std::cerr << "RPC failed: "
-              << status.error_message() << '\n';
+              << kStatus.error_message() << '\n';
         return false;
     }
     return true;

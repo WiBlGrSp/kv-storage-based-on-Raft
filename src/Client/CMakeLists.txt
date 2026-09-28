@@ -1,6 +1,6 @@
 
 add_library(Client STATIC
-    Client.cpp
+    client.cpp
 )
 
 target_include_directories(Client

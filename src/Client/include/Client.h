@@ -4,8 +4,8 @@
 #ifndef CLIENT_H
 #define CLIENT_H
 //RPC通道
-#include "serverRPC.grpc.pb.h"
-#include "serverRPC.pb.h"
+#include "server_rpc.grpc.pb.h"
+#include "server_rpc.pb.h"
 #include <grpcpp/client_context.h>
 #include <grpcpp/support/status.h>
 #include <grpcpp/grpcpp.h>

@@ -1,21 +1,21 @@
 
-#include "include/Server.h"
+#include "server.h"
 #include <grpcpp/server.h>
 #include<thread>
-#include "RaftRPC.h"
-#include"ServerRPC.h"
-#include "RaftStorage.h"
-#include "raft.h"
+#include "raft_rpc.h"
+#include"server_rpc.h"
+#include "raft_storage.h"
+#include "raft_node.h"
 Server::Server(int me,const std::string&address,std::map<int,std::string>peers):me_(me),address_(address),peers_(peers) {
 
 
 }
 
-bool Server::isLeader(const ser::isLeaderRequest* request,ser::isLeaderResponse* response) {
-    response->set_is_leader(this->raft_node_->isLeader());
+bool Server::IsLeader(const ser::isLeaderRequest* request,ser::isLeaderResponse* response) {
+    response->set_is_leader(this->raft_node_->IsLeader());
     return true;
 }
-bool Server::execute(const ser::executeRequest*request, ser::executeResponse*response) {
+bool Server::Execute(const ser::executeRequest*request, ser::executeResponse*response) {
     // request->op();
     // auto key = request->key();
     // auto value = request->value();
@@ -28,7 +28,7 @@ bool Server::execute(const ser::executeRequest*request, ser::executeResponse*res
     std::string value = request->value();
     std::cout << "[EXECUTE]:" <<op << ":" << key <<" " << value << std::endl;
     bool success;
-    if(!this->raft_node_->isLeader())
+    if(!this->raft_node_->IsLeader())
     {
         response->set_is_leader(false);
         response->set_success(false);
@@ -36,13 +36,13 @@ bool Server::execute(const ser::executeRequest*request, ser::executeResponse*res
     }
     if(op == "get")
     {
-        success = storage_->get(key,value);
+        success = storage_->Get(key,value);
     }else if(op == "put")
     {
-        success = storage_->put(key,value);
+        success = storage_->Put(key,value);
     }else if(op == "del")
     {
-        success = storage_->put(key,"");
+        success = storage_->Put(key,"");
     }else{
         std::cerr << "[ERROR]:输入命令不合法" ;
         success = false;
@@ -59,7 +59,7 @@ bool Server::execute(const ser::executeRequest*request, ser::executeResponse*res
     }
     return true;
 }
-void Server::start() {
+void Server::Start() {
     //组装子模块
     kv_store_ =  new KVStore;
 
@@ -72,13 +72,13 @@ void Server::start() {
 
     storage_ = new RaftStorage(*raft_node_,*kv_store_); 
     //启动RPC服务
-    startRPC();
+    StartRPC();
 
     //启动rpc子模块
-    raft_node_->start();
+    raft_node_->Start();
 
 }
-void Server::startRPC() {
+void Server::StartRPC() {
     std::thread th(
         [this](){
 

@@ -1,4 +1,4 @@
-#include"Server.h"
+#include"server.h"
 int main(int argc,const char*argv[])
 {
     printf("program start\n");
@@ -28,7 +28,7 @@ int main(int argc,const char*argv[])
     }
     //初始化服务器
     Server server(me,address,nodes);
-    server.start();
+    server.Start();
 
     return 0;
 }

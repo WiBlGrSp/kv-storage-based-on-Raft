@@ -1,6 +1,6 @@
 
 add_library(raft_storage STATIC
-    RaftStorage.cpp
+    raft_storage.cpp
 )
 
 target_include_directories(raft_storage

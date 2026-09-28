@@ -1,19 +1,19 @@
-#include "KVStore.h"
-#include "raft.h"
-#include"RaftRPC.h"
-#include"RaftStorage.h"
+#include "kv_store.h"
+#include "raft_node.h"
+#include "raft_rpc.h"
+#include "raft_storage.h"
 #include <thread>
-void test(Storage & storage,std::string op ,std::string key,std::string value)
+void Test(Storage & storage,std::string op ,std::string key,std::string value)
 {
     std::this_thread::sleep_for(std::chrono::seconds(3));
     std::string tip = "[CLI]:" + op + ' ' + key +' ' + value;
     std::cout << tip << std::endl;
     bool res;
     if(op == "put"){
-        res = storage.put(key,value);
+        res = storage.Put(key,value);
     }
     else{
-        res = storage.get(key,value); 
+        res = storage.Get(key,value); 
     }
 }
 //要求输入--me=1@地址:端口 --peers=id@ip:port
@@ -49,7 +49,7 @@ int main(int argc,const char*argv[])
     RaftServer raft_server;
     raft_server.start(address,raft_node);
     std::thread th([&](){
-        raft_node.start();
+        raft_node.Start();
     });
     th.detach();
     RaftStorage storage(raft_node,kv_store);
@@ -57,10 +57,10 @@ int main(int argc,const char*argv[])
     {
         std::this_thread::sleep_for(std::chrono::seconds(5));
         printf("模拟客户端调用storage接口\n");
-        test(storage,"put","a","123");
-        test(storage,"get","a","");
-        test(storage,"put","a","");
-        test(storage,"get","a","");
+        Test(storage,"put","a","123");
+        Test(storage,"get","a","");
+        Test(storage,"put","a","");
+        Test(storage,"get","a","");
     }
     return 0;
 }
