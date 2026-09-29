@@ -172,7 +172,7 @@ public:
     RaftNode(int id,const std::map<int,Node> kNodes,KVStore&kv_store)
     :me_(id),peers_(kNodes),rng_(MakeRng(id)),persis_(id),state_machine_(kv_store){
         peers_.erase(id);
-        this->log_.push_back(Entry{});
+        this->log_.push_back(Entry{0,0,""});
     }
     ~RaftNode(){
 

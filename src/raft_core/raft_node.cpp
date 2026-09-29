@@ -148,79 +148,57 @@ void RaftNode::OnHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
 
     //心跳成功,重置选举定时器
     ResetElectionTimerLocked();
-
-
-    //处理日志组
     
-    //没有日志
+    //空心跳
     if(request->entries_size() == 0)
     {   
         response->set_success( true);
-
+        //提交序号更新
+        if(commited_index_ < request->commited_index())
+        {
+            commited_index_ = std::min(GetLastIndex(),request->commited_index());
+        }
     }else
     {
-        //如果有日志
-
-        if(this->GetLastIndex() < request->prev_index())
+    //携带日志的心跳
+        //如果follower没有prevIndex日志,或者preIndex日志处不匹配,不做处理,响应false
+        int prev_index = request->prev_index();
+        printf("[HEARTBEAT %d->%d]:prev_index=%d\n",request->leader_id(),me_,prev_index);
+        
+        if((this->GetLastIndex() < prev_index )|| this->log_.at(prev_index).term != request->prev_term())
         {
-            //从节点没有该日志
             response->set_success(false);
-            // response->set_next_index(this->getLastIndex()+1);
-        }else 
+        }else //从节点匹配成功
         {
-            //从节点有该日志
-            int prev_index = request->prev_index();
-            if(this->log_[prev_index].term == request->prev_term())
-            {
-                //匹配成功
-                //删除之后的日志
-                auto begin = this->log_.begin()+prev_index+1;
-                if(begin>=this->log_.begin() && begin < this->log_.end())
-                    this->log_.erase(begin,this->log_.end());
-                else
-                    std::cerr << "[ERROR]:log index overflow";
-                    
-                    //追加新日志
-                auto entries = request->entries();
-                for(const auto kE:entries)
-                {
-                    this->log_.emplace_back(Entry{kE.index(),kE.term(),kE.cmd()});
-                }
-                //持久化日志
-                SaveLog();
-                // response->set_next_index(this->getLastIndex()+1);
-                std::cout << "追加成功,当前日志为:" << std::endl;
-                for(const auto kS : log_)
-                {
-                    std::cout << "(" << kS.index << ',' << kS.term <<')' << kS.cmd << std::endl;
-                }
-                //响应成功
-                response->set_success(true);
-            }else{
-            //匹配失败
-
-            //删除当前日志及之后日志
-            auto begin = this->log_.begin()+prev_index;
+            //删除匹配点之后的日志
+            auto begin = this->log_.begin()+prev_index+1;
             if(begin>=this->log_.begin() && begin < this->log_.end())
                 this->log_.erase(begin,this->log_.end());
             else
-                std::cerr << "[ERROR]:log index overflow";
-                //响应失败
-            response->set_success(false);
+                std::cerr << "[ERROR]:log index overflow";        
+            //追加新日志
+            auto entries = request->entries();
+            for(const auto kE:entries)
+            {
+                this->log_.emplace_back(Entry{kE.index(),kE.term(),kE.cmd()});
             }
+            //持久化日志
+            SaveLog();
+            std::cout << "追加成功,当前日志为:" << std::endl;
+            for(const auto kS : log_)
+            {
+                std::cout << "(" << kS.index << ',' << kS.term <<')' << kS.cmd << std::endl;
+            }
+            //提交序号更新
+            if(commited_index_ < request->commited_index())
+            {
+                commited_index_ = std::min(GetLastIndex(),request->commited_index());
+            }
+            //响应成功
+            response->set_success(true);
         }
-    
     }
-    //commit更新
-    // printf("commited_index=%d\n",this->commited_index_);
-    // printf("request_commited_index=%d\n",request->commited_index());
-    if(commited_index_ < request->commited_index())
-    {
-        // int snapshot = commited_index_;
-        commited_index_ = std::min(GetLastIndex(),request->commited_index());
-        // if(snapshot!=commited_index_)
-            // CommitLog(commited_index_);
-    }
+
 }
 //广播要票请求
 void RaftNode::BroadcastRequestVote() {
@@ -319,9 +297,11 @@ void RaftNode::SendHeartBeat(int id,const int kTermSnapshot)
     request.set_commited_index(this->commited_index_);
     int prev_index = this->next_indexs_[id]-1;
     //还有记录未发送,打包发送
+
     if(GetLastIndex() >= this->next_indexs_[id])
     {
         request.set_prev_index(prev_index);
+        printf("[HEARTBEAT %d->%d]:prev_index=%d\n",me_,id,prev_index);
         if(prev_index>=0)
         {
             request.set_prev_term(this->log_[prev_index].term);
