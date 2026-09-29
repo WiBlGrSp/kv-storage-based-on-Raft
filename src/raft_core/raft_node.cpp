@@ -533,7 +533,7 @@ void RaftNode::ApplyLoop()
         {
             {
                 std::lock_guard<std::mutex> lck(mu_);
-                if(this->state_==State::kLeader && last_applied_ < commited_index_)
+                if(last_applied_ < commited_index_)
                 {
                     while(last_applied_ < commited_index_)
                     {
