@@ -149,26 +149,17 @@ void RaftNode::OnHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
     //心跳成功,重置选举定时器
     ResetElectionTimerLocked();
     
-    //空心跳
-    if(request->entries_size() == 0)
-    {   
-        response->set_success( true);
-        //提交序号更新
-        if(commited_index_ < request->commited_index())
-        {
-            commited_index_ = std::min(GetLastIndex(),request->commited_index());
-        }
-    }else
+    //检查日志匹配性
+    //如果follower没有prevIndex日志,或者preIndex日志处不匹配,不做处理,响应false
+    int prev_index = request->prev_index();
+    
+    if(this->GetLastIndex() < prev_index || this->log_.at(prev_index).term != request->prev_term())
     {
-    //携带日志的心跳
-        //如果follower没有prevIndex日志,或者preIndex日志处不匹配,不做处理,响应false
-        int prev_index = request->prev_index();
-        printf("[HEARTBEAT %d->%d]:prev_index=%d\n",request->leader_id(),me_,prev_index);
-        
-        if((this->GetLastIndex() < prev_index )|| this->log_.at(prev_index).term != request->prev_term())
-        {
-            response->set_success(false);
-        }else //从节点匹配成功
+        response->set_success(false);
+    }else //从节点匹配成功
+    {
+        //如果心跳携带日志
+        if(request->entries_size()>0)
         {
             //删除匹配点之后的日志
             auto begin = this->log_.begin()+prev_index+1;
@@ -189,16 +180,15 @@ void RaftNode::OnHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
             {
                 std::cout << "(" << kS.index << ',' << kS.term <<')' << kS.cmd << std::endl;
             }
-            //提交序号更新
-            if(commited_index_ < request->commited_index())
-            {
-                commited_index_ = std::min(GetLastIndex(),request->commited_index());
-            }
-            //响应成功
-            response->set_success(true);
         }
+        //提交序号更新
+        if(commited_index_ < request->commited_index())
+        {
+            commited_index_ = std::min(GetLastIndex(),request->commited_index());
+        }
+        //响应成功
+        response->set_success(true);
     }
-
 }
 //广播要票请求
 void RaftNode::BroadcastRequestVote() {
@@ -296,18 +286,12 @@ void RaftNode::SendHeartBeat(int id,const int kTermSnapshot)
     request.set_term(current_term_);
     request.set_commited_index(this->commited_index_);
     int prev_index = this->next_indexs_[id]-1;
+    request.set_prev_index(prev_index);
+    request.set_prev_term(this->log_[prev_index].term);
     //还有记录未发送,打包发送
 
     if(GetLastIndex() >= this->next_indexs_[id])
     {
-        request.set_prev_index(prev_index);
-        printf("[HEARTBEAT %d->%d]:prev_index=%d\n",me_,id,prev_index);
-        if(prev_index>=0)
-        {
-            request.set_prev_term(this->log_[prev_index].term);
-        }else{
-            std::cerr << "[ERROR]: prevIndex negative" ;
-        }
         for(auto it = this->log_.begin()+prev_index+1;it!=this->log_.end();it++)
         {
             auto e = request.add_entries();
@@ -358,14 +342,6 @@ void RaftNode::SendHeartBeat(int id,const int kTermSnapshot)
         next_indexs_[id] --;
     }
 
-    //leader根据从结点返回的nextIndex更新对follower日志状态
-
-    // if(response.next_index()>0)
-    // {
-    //     this->next_indexs_[id] = response.next_index();
-    //     this->match_indexs_[id] = response.next_index()-1;
-    // } 
-    //TODO:超过半数提交成功,则提交当前日志
     
 }
     
