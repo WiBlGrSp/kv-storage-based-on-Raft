@@ -149,7 +149,7 @@ private:
     bool LoadLog();
     //提交日志
     bool CommitLog(int index);
-    //检查,更新commit_index并提交
+    //检查,更新commit_index
     bool UpdateCommit();
 //主干函数 和 RPC请求封装
 private:
@@ -190,6 +190,7 @@ private:
     void OnElectionTimeout();
     //心跳超时行为
     void OnHeartBeatTimeout();
+
 public:
     //外部调用,请求添加日志
     MyFuture Propose(const std::string&cmd);

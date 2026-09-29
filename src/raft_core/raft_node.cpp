@@ -21,8 +21,6 @@ void RaftNode::Start() {
         current_term_ = 0;
         vote_count_ = 0;
         vote_for_ = -1;
-        // is_heartbeat_ = false;
-        // is_election_success_ = false;
         commited_index_ = 0;
         last_applied_ = 0;
         //加载持久化信息
@@ -188,6 +186,8 @@ void RaftNode::OnHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
                 {
                     this->log_.emplace_back(Entry{kE.index(),kE.term(),kE.cmd()});
                 }
+                //持久化日志
+                SaveLog();
                 // response->set_next_index(this->getLastIndex()+1);
                 std::cout << "追加成功,当前日志为:" << std::endl;
                 for(const auto kS : log_)
@@ -216,10 +216,10 @@ void RaftNode::OnHeartBeat(const raft::HeartBeatRequest* request,raft::HeartBeat
     // printf("request_commited_index=%d\n",request->commited_index());
     if(commited_index_ < request->commited_index())
     {
-        int snapshot = commited_index_;
+        // int snapshot = commited_index_;
         commited_index_ = std::min(GetLastIndex(),request->commited_index());
-        if(snapshot!=commited_index_)
-            CommitLog(commited_index_);
+        // if(snapshot!=commited_index_)
+            // CommitLog(commited_index_);
     }
 }
 //广播要票请求
@@ -469,7 +469,7 @@ bool RaftNode::SaveLog() {
 
     std::stringstream ss;
     int size = log_.size();
-    for(size_t i = 1;i<=size;i++)
+    for(size_t i = 1;i<size;i++)
     {
         ss << log_[i].index << ":" << log_[i].term << ":" << log_[i].cmd << "\n";
     }
@@ -531,20 +531,20 @@ bool RaftNode::UpdateCommit()
             right = mid-1;
         }
     }
-    int res;
+    int to_commit_index;
     if(count >= (peers_.size()+1)/2+1)
     {
-        res = mid;
+        to_commit_index = mid;
     }else{
-        res = mid-1;
+        to_commit_index = mid-1;
     }   
     //保证commitindex有改变,且提交日志为本任期,再进行提交
-    if(res!=commited_index_ && this->log_[res].term == this->current_term_){
-        //提交日志,更新commit
-        if(CommitLog(res))
-        {
-            commited_index_ = res;
-        }
+    if(to_commit_index!=commited_index_ && this->log_[to_commit_index].term == this->current_term_){
+        // //提交日志,更新commit
+        // if(CommitLog(to_commit_index))
+        // {
+            commited_index_ = to_commit_index;
+        // }
     }
 
     return true;
@@ -563,6 +563,8 @@ RaftNode::MyFuture RaftNode::Propose(const std::string&cmd)
     int index = GetLastIndex()+1;
     int term = this->current_term_;
     this->log_.emplace_back(Entry{index,term,cmd});
+    //持久化日志
+    this->SaveLog();
     //将客户端请求添加到pendding,等待commit与apply成功
     auto p = std::make_shared<MyPromise>();
     this->pendding_map_[std::pair<int, int>(index,term)] = p;
