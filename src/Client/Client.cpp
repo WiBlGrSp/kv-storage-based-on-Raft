@@ -14,8 +14,8 @@ bool RPCChan::isLeader(const ser::isLeaderRequest&args,ser::isLeaderResponse *re
     //调用RPC
     const grpc::Status kStatus = stub_->isLeader(&context,args,response);
     if (!kStatus.ok()) {
-        std::cerr << "RPC failed: "
-              << kStatus.error_message() << '\n';
+        // std::cerr << "RPC failed: "
+        //       << kStatus.error_message() << '\n';
         return false;
     }
     return true;

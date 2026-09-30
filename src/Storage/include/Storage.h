@@ -4,7 +4,7 @@
 #include<string>
 //定义存储服务接口
 class Storage{
-    public:
+public:
     //写入键值对,value=''表示删除键
     //return : 成功写入返回true,写入失败返回false
     virtual bool Put(const std::string&key,const std::string &value)=0;

@@ -249,6 +249,8 @@ void RaftNode::SendRequestVote(int id,const int kTermSnapshot)
         {
             std::cout<< me_ << "is leader" << std::endl; 
             this->state_ = State::kLeader;
+            //追加no-op日志用于同步
+            this->log_.emplace_back(Entry{GetLastIndex()+1,this->current_term_,"no-op"});
             LogInit();
             ResetHeartBeatTimerLocked();
         }
@@ -531,38 +533,37 @@ void RaftNode::ApplyLoop()
     {
         {
             std::lock_guard<std::mutex> lck(mu_);
-            if(last_applied_ < commited_index_)
+            while(last_applied_ < commited_index_)
             {
-                while(last_applied_ < commited_index_)
+                int i = last_applied_+1;
+                Entry &e = this->log_[i];
+                //解析命令
+                std::istringstream ss(e.cmd);
+                std::string op;
+                std::string key;
+                std::string value;
+                ss >> op >> key >> value;
+                bool success = false;
+                if(op == "put")
                 {
-                    int i = last_applied_+1;
-                    Entry &e = this->log_[i];
-                    //解析命令
-                    std::istringstream ss(e.cmd);
-                    std::string op;
-                    std::string key;
-                    std::string value;
-                    ss >> op >> key >> value;
-                    bool success = false;
-                    if(op == "put")
-                    {
-                        state_machine_.Put(key,value);
-                        success = true;
-                    }
-                    else if(op == "del")
-                    {
-                        state_machine_.Del(key);
-                        success = true;
-                    }
-                    auto index_for_pendding = std::make_pair(e.index,e.term);
-                    if(this->pendding_map_.find(index_for_pendding) !=pendding_map_.end())
-                    {
-                        auto p = this->pendding_map_[std::make_pair(e.index,e.term)];
-                        p->set_value(success);
-                        this->pendding_map_.erase(std::make_pair(e.index,e.term));
-                    }
-                    last_applied_++;
+                    state_machine_.Put(key,value);
+                    std::cout << "[APPLY]:" << e.cmd << std::endl;
+                    success = true;
                 }
+                else if(op == "del")
+                {
+                    state_machine_.Del(key);
+                    std::cout << "[APPLY]:" << e.cmd << std::endl;
+                    success = true;
+                }
+                auto index_for_pendding = std::make_pair(e.index,e.term);
+                if(this->pendding_map_.find(index_for_pendding) !=pendding_map_.end())
+                {
+                    auto p = this->pendding_map_[std::make_pair(e.index,e.term)];
+                    p->set_value(success);
+                    this->pendding_map_.erase(std::make_pair(e.index,e.term));
+                }
+                last_applied_++;
             }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(200));

@@ -26,7 +26,7 @@ bool Server::Execute(const ser::executeRequest*request, ser::executeResponse*res
     std::string op = request->op();
     std::string key = request->key();
     std::string value = request->value();
-    std::cout << "[EXECUTE]:" <<op << ":" << key <<" " << value << std::endl;
+    // std::cout << "[EXECUTE]:" <<op << ":" << key <<" " << value << std::endl;
     bool success;
     if(!this->raft_node_->IsLeader())
     {
