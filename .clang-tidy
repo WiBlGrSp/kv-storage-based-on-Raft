@@ -1,0 +1,58 @@
+---
+Checks: '-*,readability-identifier-naming'
+
+HeaderFilterRegex: '^(?!.*(?:raft_proto|server_proto)).*$'
+FormatStyle: Google
+
+CheckOptions:
+  # Namespace: foo_bar
+  - {key: readability-identifier-naming.NamespaceCase, value: lower_case}
+
+  # Types: FooBar
+  - {key: readability-identifier-naming.ClassCase, value: CamelCase}
+  - {key: readability-identifier-naming.StructCase, value: CamelCase}
+  - {key: readability-identifier-naming.UnionCase, value: CamelCase}
+  - {key: readability-identifier-naming.EnumCase, value: CamelCase}
+  - {key: readability-identifier-naming.TypeAliasCase, value: CamelCase}
+  - {key: readability-identifier-naming.TypedefCase, value: CamelCase}
+  - {key: readability-identifier-naming.TemplateParameterCase, value: CamelCase}
+  - {key: readability-identifier-naming.TypeTemplateParameterCase, value: CamelCase}
+  - {key: readability-identifier-naming.TemplateTemplateParameterCase, value: CamelCase}
+  - {key: readability-identifier-naming.NonTypeTemplateParameterCase, value: CamelCase}
+
+  # Functions and methods: FooBar()
+  - {key: readability-identifier-naming.FunctionCase, value: CamelCase}
+  - {key: readability-identifier-naming.MethodCase, value: CamelCase}
+  - {key: readability-identifier-naming.ClassMethodCase, value: CamelCase}
+  - {key: readability-identifier-naming.VirtualMethodCase, value: CamelCase}
+
+  # Variables: foo_bar
+  - {key: readability-identifier-naming.VariableCase, value: lower_case}
+  - {key: readability-identifier-naming.ParameterCase, value: lower_case}
+  - {key: readability-identifier-naming.LocalVariableCase, value: lower_case}
+
+  # Global variables: g_foo_bar
+  - {key: readability-identifier-naming.GlobalVariableCase, value: lower_case}
+  - {key: readability-identifier-naming.GlobalVariablePrefix, value: 'g_'}
+
+  # Class member variables: foo_bar_
+  - {key: readability-identifier-naming.MemberCase, value: lower_case}
+  - {key: readability-identifier-naming.PrivateMemberCase, value: lower_case}
+  - {key: readability-identifier-naming.PrivateMemberSuffix, value: '_'}
+  - {key: readability-identifier-naming.ProtectedMemberCase, value: lower_case}
+  - {key: readability-identifier-naming.ProtectedMemberSuffix, value: '_'}
+  - {key: readability-identifier-naming.StaticMemberCase, value: lower_case}
+
+  # Constants: kFooBar
+  - {key: readability-identifier-naming.ConstantCase, value: CamelCase}
+  - {key: readability-identifier-naming.ConstantPrefix, value: 'k'}
+  - {key: readability-identifier-naming.ConstexprVariableCase, value: CamelCase}
+  - {key: readability-identifier-naming.ConstexprVariablePrefix, value: 'k'}
+  - {key: readability-identifier-naming.GlobalConstantCase, value: CamelCase}
+  - {key: readability-identifier-naming.GlobalConstantPrefix, value: 'k'}
+  - {key: readability-identifier-naming.LocalConstantCase, value: CamelCase}
+  - {key: readability-identifier-naming.LocalConstantPrefix, value: 'k'}
+
+  # Enum constants: kFooBar
+  - {key: readability-identifier-naming.EnumConstantCase, value: CamelCase}
+  - {key: readability-identifier-naming.EnumConstantPrefix, value: 'k'}
