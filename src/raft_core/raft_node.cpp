@@ -32,8 +32,9 @@ void RaftNode::Start() {
             clis_[id] = std::make_unique<RaftRPCClient>(node.address);
         }
         //状态机应用
-        ApplyLoop();
+        thread_apply_loop_ = std::make_unique<std::thread>(&RaftNode::ApplyLoop,this); 
     }
+    //启动定时线程
     Ticker();
     // while(true)
     // {
@@ -201,10 +202,9 @@ void RaftNode::BroadcastRequestVote() {
     }
     for(const auto&[id,node]:peers_)
     {
-        std::thread th([this,id = id,term_snapshot](){
+        thread_pool_->AddTask([this,id = id,term_snapshot](){
             SendRequestVote(id,term_snapshot);
         });
-        th.detach();
     }
 }
 void RaftNode::SendRequestVote(int id,const int kTermSnapshot)
@@ -266,10 +266,9 @@ void RaftNode::BroadcastHeartBeat() {
     }
     for(const auto&[id,_] : peers_)
     {
-        std::thread th([this,id = id,term_snapshot](){
+        thread_pool_->AddTask([this,id = id,term_snapshot](){
             SendHeartBeat(id,term_snapshot);
         });
-        th.detach();
     }
 }
 void RaftNode::SendHeartBeat(int id,const int kTermSnapshot)
@@ -528,49 +527,46 @@ RaftNode::MyFuture RaftNode::Propose(const std::string&cmd)
 }
 void RaftNode::ApplyLoop()
 {
-    std::thread th([this](){
-        while(true)
+    while(true)
+    {
         {
+            std::lock_guard<std::mutex> lck(mu_);
+            if(last_applied_ < commited_index_)
             {
-                std::lock_guard<std::mutex> lck(mu_);
-                if(last_applied_ < commited_index_)
+                while(last_applied_ < commited_index_)
                 {
-                    while(last_applied_ < commited_index_)
+                    int i = last_applied_+1;
+                    Entry &e = this->log_[i];
+                    //解析命令
+                    std::istringstream ss(e.cmd);
+                    std::string op;
+                    std::string key;
+                    std::string value;
+                    ss >> op >> key >> value;
+                    bool success = false;
+                    if(op == "put")
                     {
-                        int i = last_applied_+1;
-                        Entry &e = this->log_[i];
-                        //解析命令
-                        std::istringstream ss(e.cmd);
-                        std::string op;
-                        std::string key;
-                        std::string value;
-                        ss >> op >> key >> value;
-                        bool success = false;
-                        if(op == "put")
-                        {
-                            state_machine_.Put(key,value);
-                            success = true;
-                        }
-                        else if(op == "del")
-                        {
-                            state_machine_.Del(key);
-                            success = true;
-                        }
-                        auto index_for_pendding = std::make_pair(e.index,e.term);
-                        if(this->pendding_map_.find(index_for_pendding) !=pendding_map_.end())
-                        {
-                            auto p = this->pendding_map_[std::make_pair(e.index,e.term)];
-                            p->set_value(success);
-                            this->pendding_map_.erase(std::make_pair(e.index,e.term));
-                        }
-                        last_applied_++;
+                        state_machine_.Put(key,value);
+                        success = true;
                     }
+                    else if(op == "del")
+                    {
+                        state_machine_.Del(key);
+                        success = true;
+                    }
+                    auto index_for_pendding = std::make_pair(e.index,e.term);
+                    if(this->pendding_map_.find(index_for_pendding) !=pendding_map_.end())
+                    {
+                        auto p = this->pendding_map_[std::make_pair(e.index,e.term)];
+                        p->set_value(success);
+                        this->pendding_map_.erase(std::make_pair(e.index,e.term));
+                    }
+                    last_applied_++;
                 }
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
-    });
-    th.detach();
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
 }
 
 void RaftNode::Ticker() {

@@ -47,7 +47,7 @@ int main(int argc,const char*argv[])
     KVStore kv_store;
     RaftNode raft_node(me,nodes,kv_store);
     RaftServer raft_server;
-    raft_server.start(address,raft_node);
+    raft_server.Start(address,raft_node);
     std::thread th([&](){
         raft_node.Start();
     });

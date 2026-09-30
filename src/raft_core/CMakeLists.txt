@@ -16,6 +16,7 @@ target_link_libraries(raft_core
         raft_proto
         gRPC::grpc++
         kv_store
+        thread_pool
     PRIVATE
         Threads::Threads
 )

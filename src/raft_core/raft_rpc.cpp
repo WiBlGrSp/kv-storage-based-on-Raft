@@ -11,7 +11,7 @@ grpc::Status RaftRPCServiceImpl::OnHeartBeat(grpc::ServerContext*,
     raft_node_.OnHeartBeat(request,response);
     return grpc::Status::OK;
 }
-void RaftServer::start(const std::string&address,RaftNode&raft_node)
+void RaftServer::Start(const std::string&address,RaftNode&raft_node)
 {
     std::thread th(
         [this,raft_node = &raft_node,address](){

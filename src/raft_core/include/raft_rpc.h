@@ -33,7 +33,7 @@ private:
 
     std::unique_ptr<grpc::Server> server_;
 public:
-    void start(const std::string&address,RaftNode&raft_node);
+    void Start(const std::string&address,RaftNode&raft_node);
 };
 
 

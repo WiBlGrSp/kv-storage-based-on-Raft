@@ -24,3 +24,11 @@ target_link_libraries(client_test
     PRIVATE
         Client
 )
+
+add_executable(thread_pool_test
+    thread_pool_test.cpp
+)
+target_link_libraries(thread_pool_test
+    PRIVATE
+        thread_pool
+)

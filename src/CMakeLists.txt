@@ -1,3 +1,4 @@
+add_subdirectory(common)
 add_subdirectory(raft_proto)
 add_subdirectory(server_proto)
 add_subdirectory(raft_core)
